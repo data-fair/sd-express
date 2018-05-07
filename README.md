@@ -1,5 +1,8 @@
 # simple-directory-client-express
 
+[![Build Status](https://travis-ci.org/koumoul-dev/simple-directory-client-express.svg?branch=master)](https://travis-ci.org/koumoul-dev/simple-directory-client-express)
+[![Coverage Status](https://coveralls.io/repos/github/koumoul-dev/simple-directory-client-express/badge.svg?branch=master)](https://coveralls.io/github/koumoul-dev/simple-directory-client-express?branch=master)
+
 Middleware and router helpers to write expressjs applications that depend on [simple-directory](https://koumoul-dev.github.io/simple-directory/) for authentication.
 
     npm i simple-directory-client-express
