@@ -27,6 +27,7 @@
   "homepage": "https://github.com/koumoul-dev/simple-directory-client-express#readme",
   "dependencies": {
     "axios": "^0.18.0",
+    "cookies": "^0.7.1",
     "debug": "^3.1.0",
     "express": "^4.16.3",
     "jsonwebtoken": "^8.2.1",

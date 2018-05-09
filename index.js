@@ -4,6 +4,7 @@ const axios = require('axios')
 const express = require('express')
 const jwt = require('jsonwebtoken')
 const jwksRsa = require('jwks-rsa')
+const Cookies = require('cookies')
 jwt.verifyAsync = util.promisify(jwt.verify)
 const debug = require('debug')('session')
 
@@ -80,7 +81,8 @@ function _loginCallback (publicUrl, jwksClient, cookieName, cookieOpts) {
 function _decode (cookieName) {
   return (req, res, next) => {
     // JWT in a cookie = already active session
-    let token = req.cookies[cookieName]
+    const cookies = new Cookies(req, res)
+    let token = cookies.get(cookieName)
     if (token) {
       req.user = jwt.decode(token)
     }
@@ -93,7 +95,8 @@ function _decode (cookieName) {
 function _auth (directoryUrl, publicUrl, jwksClient, cookieName, cookieOpts) {
   return asyncWrap(async (req, res, next) => {
     // JWT in a cookie = already active session
-    let token = req.cookies[cookieName]
+    const cookies = new Cookies(req, res)
+    let token = cookies.get(cookieName)
     if (token) {
       try {
         debug(`Verify JWT token from the ${cookieName} cookie`)
