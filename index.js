@@ -61,7 +61,7 @@ function _loginCallback (publicUrl, jwksClient, cookieName, cookieOpts) {
         debug(`Verify JWT token from the query parameter`)
         const payload = await _verifyToken(jwksClient, linkToken)
         debug('JWT token from query parameter is ok, store it in cookie', payload)
-        res.cookie(cookieName, linkToken, {...cookieOpts, expires: new Date(payload.exp * 1000)})
+        cookies.set(cookieName, linkToken, {...cookieOpts, expires: new Date(payload.exp * 1000)})
       } catch (err) {
         // Token expired or bad in another way..
         // TODO: a way to display warning to user ? throw error ?
@@ -124,7 +124,8 @@ function _auth (directoryUrl, publicUrl, jwksClient, cookieName, cookieOpts) {
         const exchangedToken = exchangeRes.data
         req.user = await _verifyToken(jwksClient, exchangedToken)
         debug('Exchanged token is ok, store it', req.user)
-        res.cookie(cookieName, exchangedToken, {...cookieOpts, expires: new Date(req.user.exp * 1000)})
+        const cookies = new Cookies(req, res)
+        cookies.set(cookieName, exchangedToken, {...cookieOpts, expires: new Date(req.user.exp * 1000)})
       }
     }
     next()
