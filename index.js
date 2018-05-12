@@ -61,6 +61,7 @@ function _loginCallback (publicUrl, jwksClient, cookieName, cookieOpts) {
         debug(`Verify JWT token from the query parameter`)
         const payload = await _verifyToken(jwksClient, linkToken)
         debug('JWT token from query parameter is ok, store it in cookie', payload)
+        const cookies = new Cookies(req, res)
         cookies.set(cookieName, linkToken, {...cookieOpts, expires: new Date(payload.exp * 1000)})
       } catch (err) {
         // Token expired or bad in another way..
