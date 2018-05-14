@@ -1,5 +1,6 @@
 const util = require('util')
 const assert = require('assert')
+const URL = require('url').URL
 const axios = require('axios')
 const express = require('express')
 const jwt = require('jsonwebtoken')
@@ -41,6 +42,22 @@ module.exports = ({directoryUrl, publicUrl, cookieName, cookieOpts}) => {
   router.post('/keepalive', auth, (req, res) => res.status(204).send())
 
   return {auth, decode, loginCallback, login, logout, router}
+}
+
+// Fetch a session token from cookies if the same site policy is respected
+function _getCookieToken (cookies, req, cookieName, cookieOpts, publicUrl) {
+  const token = cookies.get(cookieName)
+  if (!token) return null
+  if (!cookieOpts.sameSite) return token
+  let reqOrigin = req.header('origin')
+  if (!reqOrigin && req.header('referer') && req.header('referer').indexOf('blob:') !== 0) {
+    reqOrigin = new URL(req.header('referer')).origin
+  }
+  if (reqOrigin && reqOrigin !== new URL(publicUrl).origin) {
+    debug(`A cookie was sent from origin ${reqOrigin} while public url is ${publicUrl}, ignore it`)
+    return null
+  }
+  return token
 }
 
 // Fetch the public info of signing key from the directory that acts as jwks provider
@@ -97,7 +114,7 @@ function _auth (directoryUrl, publicUrl, jwksClient, cookieName, cookieOpts) {
   return asyncWrap(async (req, res, next) => {
     // JWT in a cookie = already active session
     const cookies = new Cookies(req, res)
-    let token = cookies.get(cookieName)
+    const token = _getCookieToken(cookies, req, cookieName, cookieOpts, publicUrl)
     if (token) {
       try {
         debug(`Verify JWT token from the ${cookieName} cookie`)
