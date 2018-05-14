@@ -19,8 +19,7 @@ module.exports = ({directoryUrl, publicUrl, cookieName, cookieOpts}) => {
   // As secure as possible cookie parameters by default
   //  - httpOnly against cross site scripting (XSS)
   //  - sameSite against cross site request forgery (CSRF)
-  //  - secure against theft during transport by forcing HTTPS
-  cookieOpts = cookieOpts || {httpOnly: true, sameSite: true, secure: true}
+  cookieOpts = cookieOpts || {httpOnly: true, sameSite: true}
   if (['test', 'development'].includes(process.env.NODE_ENV)) delete cookieOpts.secure
 
   const jwksClient = _getJWKSClient(directoryUrl)
