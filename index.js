@@ -23,14 +23,7 @@ module.exports = ({directoryUrl, publicUrl, cookieName, cookieOpts}) => {
   cookieOpts = cookieOpts || {httpOnly: true, sameSite: true, secure: true}
   if (['test', 'development'].includes(process.env.NODE_ENV)) delete cookieOpts.secure
 
-  const jwksClient = jwksRsa({
-    cache: true,
-    rateLimit: true,
-    jwksRequestsPerMinute: 5,
-    jwksUri: directoryUrl + '/.well-known/jwks.json'
-  })
-  jwksClient.getSigningKeyAsync = util.promisify(jwksClient.getSigningKey)
-
+  const jwksClient = _getJWKSClient(directoryUrl)
   const auth = _auth(directoryUrl, publicUrl, jwksClient, cookieName, cookieOpts)
   const decode = _decode(cookieName)
   const loginCallback = _loginCallback(publicUrl, jwksClient, cookieName, cookieOpts)
@@ -42,6 +35,20 @@ module.exports = ({directoryUrl, publicUrl, cookieName, cookieOpts}) => {
   router.post('/keepalive', auth, (req, res) => res.status(204).send())
 
   return {auth, decode, loginCallback, login, logout, router}
+}
+
+// A cache of jwks clients, so that this module's main function can be called multiple times
+const jwksClients = {}
+function _getJWKSClient (directoryUrl) {
+  if (jwksClients[directoryUrl]) return jwksClients[directoryUrl]
+  jwksClients[directoryUrl] = jwksRsa({
+    cache: true,
+    rateLimit: true,
+    jwksRequestsPerMinute: 5,
+    jwksUri: directoryUrl + '/.well-known/jwks.json'
+  })
+  jwksClients[directoryUrl].getSigningKeyAsync = util.promisify(jwksClients[directoryUrl].getSigningKey)
+  return jwksClients[directoryUrl]
 }
 
 // Fetch a session token from cookies if the same site policy is respected
