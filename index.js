@@ -9,27 +9,25 @@ const Cookies = require('cookies')
 jwt.verifyAsync = util.promisify(jwt.verify)
 const debug = require('debug')('session')
 
-module.exports = ({directoryUrl, publicUrl, cookieName, cookieOpts}) => {
+module.exports = ({directoryUrl, publicUrl, cookieName}) => {
   assert.ok(!!directoryUrl, 'directoryUrl parameter is required')
   assert.ok(!!publicUrl, 'publicUrl parameter is required')
-  debug('Init with parameters', {directoryUrl, publicUrl, cookieName, cookieOpts})
+  debug('Init with parameters', {directoryUrl, publicUrl, cookieName})
 
   cookieName = cookieName || 'id_token'
 
-  // As secure as possible cookie parameters by default
-  //  - httpOnly against cross site scripting (XSS)
-  //  - sameSite against cross site request forgery (CSRF)
-  cookieOpts = cookieOpts || {httpOnly: true, sameSite: true}
-  if (['test', 'development'].includes(process.env.NODE_ENV)) delete cookieOpts.secure
-
   const jwksClient = _getJWKSClient(directoryUrl)
-  const auth = _auth(directoryUrl, publicUrl, jwksClient, cookieName, cookieOpts)
+  const auth = _auth(directoryUrl, publicUrl, jwksClient, cookieName)
   const decode = _decode(cookieName)
-  const loginCallback = _loginCallback(publicUrl, jwksClient, cookieName, cookieOpts)
+  const loginCallback = _loginCallback(publicUrl, jwksClient, cookieName)
   const login = _login(directoryUrl, publicUrl)
   const logout = _logout(cookieName)
   const router = express.Router()
   router.get('/login', login)
+  router.get('/me', auth, (req, res) => {
+    if (!req.user) return res.status(404).send()
+    else res.send(req.user)
+  })
   router.post('/logout', logout)
   router.post('/keepalive', auth, (req, res) => res.status(204).send())
 
@@ -51,10 +49,9 @@ function _getJWKSClient (directoryUrl) {
 }
 
 // Fetch a session token from cookies if the same site policy is respected
-function _getCookieToken (cookies, req, cookieName, cookieOpts, publicUrl) {
-  const token = cookies.get(cookieName)
+function _getCookieToken (cookies, req, cookieName, publicUrl) {
+  let token = cookies.get(cookieName)
   if (!token) return null
-  if (!cookieOpts.sameSite) return token
   let reqOrigin = req.header('origin')
   if (!reqOrigin && req.header('referer') && req.header('referer').indexOf('blob:') !== 0) {
     reqOrigin = new URL(req.header('referer')).origin
@@ -63,7 +60,17 @@ function _getCookieToken (cookies, req, cookieName, cookieOpts, publicUrl) {
     debug(`A cookie was sent from origin ${reqOrigin} while public url is ${publicUrl}, ignore it`)
     return null
   }
-  return token
+  return token + '.' + cookies.get(cookieName + '_sign')
+}
+
+// Split JWT strategy, the signature is in a httpOnly cookie for XSS prevention
+// the header and payload are not httpOnly to be readable by client
+// all cookies use sameSite for CSRF prevention
+function _setCookieToken (cookies, cookieName, token, payload) {
+  const parts = token.split('.')
+  const opts = {sameSite: true, expires: new Date(payload.exp * 1000)}
+  cookies.set(cookieName, parts[0] + '.' + parts[1], opts)
+  cookies.set(cookieName + '_sign', parts[2], {...opts, httpOnly: true})
 }
 
 // Fetch the public info of signing key from the directory that acts as jwks provider
@@ -84,8 +91,7 @@ function _loginCallback (publicUrl, jwksClient, cookieName, cookieOpts) {
         debug(`Verify JWT token from the query parameter`)
         const payload = await _verifyToken(jwksClient, linkToken)
         debug('JWT token from query parameter is ok, store it in cookie', payload)
-        const cookies = new Cookies(req, res)
-        cookies.set(cookieName, linkToken, {...cookieOpts, expires: new Date(payload.exp * 1000)})
+        _setCookieToken(new Cookies(req, res), cookieName, linkToken, payload)
       } catch (err) {
         // Token expired or bad in another way..
         // TODO: a way to display warning to user ? throw error ?
@@ -116,11 +122,11 @@ function _decode (cookieName) {
 
 // This middleware checks if a user has an active session with a valid token
 // it defines req.user and it can extend the session if necessary.
-function _auth (directoryUrl, publicUrl, jwksClient, cookieName, cookieOpts) {
+function _auth (directoryUrl, publicUrl, jwksClient, cookieName) {
   return asyncWrap(async (req, res, next) => {
     // JWT in a cookie = already active session
     const cookies = new Cookies(req, res)
-    const token = _getCookieToken(cookies, req, cookieName, cookieOpts, publicUrl)
+    const token = _getCookieToken(cookies, req, cookieName, publicUrl)
     if (token) {
       try {
         debug(`Verify JWT token from the ${cookieName} cookie`)
@@ -129,7 +135,8 @@ function _auth (directoryUrl, publicUrl, jwksClient, cookieName, cookieOpts) {
       } catch (err) {
         // Token expired or bad in another way.. delete the cookie
         debug('JWT token from cookie is broken, clear it', err)
-        res.clearCookie(cookieName)
+        cookies.set(cookieName)
+        cookies.set(cookieName + '_sign')
       }
     }
 
@@ -148,8 +155,7 @@ function _auth (directoryUrl, publicUrl, jwksClient, cookieName, cookieOpts) {
         const exchangedToken = exchangeRes.data
         req.user = await _verifyToken(jwksClient, exchangedToken)
         debug('Exchanged token is ok, store it', req.user)
-        const cookies = new Cookies(req, res)
-        cookies.set(cookieName, exchangedToken, {...cookieOpts, expires: new Date(req.user.exp * 1000)})
+        _setCookieToken(cookies, cookieName, exchangedToken, req.user)
       }
     }
     next()
@@ -169,7 +175,9 @@ function _login (directoryUrl, publicUrl) {
 // no need to call the directory
 function _logout (cookieName) {
   return (req, res) => {
-    res.clearCookie(cookieName)
+    const cookies = new Cookies(req, res)
+    cookies.set(cookieName)
+    cookies.set(cookieName + '_sign')
     res.status(204).send()
   }
 }
