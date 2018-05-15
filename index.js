@@ -17,7 +17,7 @@ module.exports = ({directoryUrl, publicUrl, cookieName}) => {
 
   const jwksClient = _getJWKSClient(directoryUrl)
   const auth = _auth(directoryUrl, publicUrl, jwksClient, cookieName)
-  const decode = _decode(cookieName)
+  const decode = _decode(cookieName, publicUrl)
   const loginCallback = _loginCallback(publicUrl, jwksClient, cookieName)
   const login = _login(directoryUrl, publicUrl)
   const logout = _logout(cookieName)
@@ -104,11 +104,11 @@ function _loginCallback (publicUrl, jwksClient, cookieName, cookieOpts) {
 // This middleware checks if a user has an active session and defines req.user
 // Contrary to auth it does not validate the token, only decode it..
 // so it faster but it is limited to routes where req.user is informative
-function _decode (cookieName) {
+function _decode (cookieName, publicUrl) {
   return (req, res, next) => {
     // JWT in a cookie = already active session
     const cookies = new Cookies(req, res)
-    let token = cookies.get(cookieName)
+    const token = _getCookieToken(cookies, req, cookieName, publicUrl)
     if (token) {
       req.user = jwt.decode(token)
     }
