@@ -12,9 +12,8 @@ const debug = require('debug')('session')
 module.exports = ({directoryUrl, publicUrl, cookieName}) => {
   assert.ok(!!directoryUrl, 'directoryUrl parameter is required')
   assert.ok(!!publicUrl, 'publicUrl parameter is required')
-  debug('Init with parameters', {directoryUrl, publicUrl, cookieName})
-
   cookieName = cookieName || 'id_token'
+  debug('Init with parameters', {directoryUrl, publicUrl, cookieName})
 
   const jwksClient = _getJWKSClient(directoryUrl)
   const auth = _auth(directoryUrl, publicUrl, jwksClient, cookieName)
@@ -52,10 +51,7 @@ function _getJWKSClient (directoryUrl) {
 function _getCookieToken (cookies, req, cookieName, publicUrl) {
   let token = cookies.get(cookieName)
   if (!token) return null
-  let reqOrigin = req.header('origin')
-  if (!reqOrigin && req.header('referer') && req.header('referer').indexOf('blob:') !== 0) {
-    reqOrigin = new URL(req.header('referer')).origin
-  }
+  const reqOrigin = req.header('origin')
   if (reqOrigin && reqOrigin !== new URL(publicUrl).origin) {
     debug(`A cookie was sent from origin ${reqOrigin} while public url is ${publicUrl}, ignore it`)
     return null
