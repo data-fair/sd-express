@@ -65,7 +65,7 @@ function _getCookieToken (cookies, req, cookieName, publicUrl) {
 function _setCookieToken (cookies, cookieName, token, payload) {
   const parts = token.split('.')
   const opts = {sameSite: true, expires: new Date(payload.exp * 1000)}
-  cookies.set(cookieName, parts[0] + '.' + parts[1], opts)
+  cookies.set(cookieName, parts[0] + '.' + parts[1], {...opts, httpOnly: false})
   cookies.set(cookieName + '_sign', parts[2], {...opts, httpOnly: true})
 }
 
