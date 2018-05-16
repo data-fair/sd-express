@@ -18,7 +18,7 @@ module.exports = ({directoryUrl, publicUrl, cookieName}) => {
   const jwksClient = _getJWKSClient(directoryUrl)
   const auth = _auth(directoryUrl, publicUrl, jwksClient, cookieName)
   const decode = _decode(cookieName, publicUrl)
-  const loginCallback = _loginCallback(publicUrl, jwksClient, cookieName)
+  const loginCallback = _loginCallback(directoryUrl, publicUrl, jwksClient, cookieName)
   const login = _login(directoryUrl, publicUrl)
   const logout = _logout(cookieName)
   const router = express.Router()
@@ -69,6 +69,15 @@ function _setCookieToken (cookies, cookieName, token, payload) {
   cookies.set(cookieName + '_sign', parts[2], {...opts, httpOnly: true})
 }
 
+// Use complementary cookie id_token_org to set the current active organization
+// of the user
+function _setOrganization (cookies, cookieName, req, user) {
+  const organizationId = cookies.get(cookieName + '_org') || req.headers['x-organizationid']
+  if (user && organizationId) {
+    user.organization = (user.organizations || []).find(o => o.id === organizationId)
+  }
+}
+
 // Fetch the public info of signing key from the directory that acts as jwks provider
 async function _verifyToken (jwksClient, token) {
   const decoded = jwt.decode(token, {complete: true})
@@ -76,18 +85,28 @@ async function _verifyToken (jwksClient, token) {
   return jwt.verifyAsync(token, signingKey.publicKey || signingKey.rsaPublicKey)
 }
 
+// Exchange a token (because if was a temporary auth token of because it is too old)
+async function _exchangeToken (directoryUrl, token) {
+  const exchangeRes = await axios.post(directoryUrl + '/api/auth/exchange', null, {headers: {Authorization: 'Bearer ' + token}})
+  return exchangeRes.data
+}
+
 // This middleware detects that we are coming from an authentication link (probably in an email)
 // and creates a new session accordingly
-function _loginCallback (publicUrl, jwksClient, cookieName, cookieOpts) {
+function _loginCallback (directoryUrl, publicUrl, jwksClient, cookieName, cookieOpts) {
   return asyncWrap(async (req, res, next) => {
     // Get a JWT in a id_token query parameter = coming from a link in an email
     const linkToken = req.query.id_token
     if (linkToken) {
+      const cookies = new Cookies(req, res)
       try {
         debug(`Verify JWT token from the query parameter`)
-        const payload = await _verifyToken(jwksClient, linkToken)
-        debug('JWT token from query parameter is ok, store it in cookie', payload)
-        _setCookieToken(new Cookies(req, res), cookieName, linkToken, payload)
+        await _verifyToken(jwksClient, linkToken)
+        debug('JWT token from query parameter is ok, exchange it for a long term session token')
+        const exchangedToken = await _exchangeToken(directoryUrl, linkToken)
+        const payload = await _verifyToken(jwksClient, exchangedToken)
+        debug('Exchanged token is ok, store it', payload)
+        _setCookieToken(cookies, cookieName, exchangedToken, payload)
       } catch (err) {
         // Token expired or bad in another way..
         // TODO: a way to display warning to user ? throw error ?
@@ -111,6 +130,7 @@ function _decode (cookieName, publicUrl) {
     const token = _getCookieToken(cookies, req, cookieName, publicUrl)
     if (token) {
       req.user = jwt.decode(token)
+      _setOrganization(cookies, cookieName, req, req.user)
     }
     next()
   }
@@ -127,6 +147,7 @@ function _auth (directoryUrl, publicUrl, jwksClient, cookieName) {
       try {
         debug(`Verify JWT token from the ${cookieName} cookie`)
         req.user = await _verifyToken(jwksClient, token)
+        _setOrganization(cookies, cookieName, req, req.user)
         debug('JWT token from cookie is ok', req.user)
       } catch (err) {
         // Token expired or bad in another way.. delete the cookie
@@ -147,9 +168,9 @@ function _auth (directoryUrl, publicUrl, jwksClient, cookieName) {
       if (tooOld) debug('The token was issued more than 12 hours ago, exchange it for a new one')
       if (shortLife) debug('The token will expire in less than half an hour, exchange it for a new one')
       if (tooOld || shortLife) {
-        const exchangeRes = await axios.post(directoryUrl + '/api/auth/exchange', null, {headers: {Authorization: 'Bearer ' + token}})
-        const exchangedToken = exchangeRes.data
+        const exchangedToken = await _exchangeToken(directoryUrl, token)
         req.user = await _verifyToken(jwksClient, exchangedToken)
+        _setOrganization(cookies, cookieName, req, req.user)
         debug('Exchanged token is ok, store it', req.user)
         _setCookieToken(cookies, cookieName, exchangedToken, req.user)
       }
