@@ -17,6 +17,13 @@ module.exports = ({directoryUrl, publicUrl, cookieName}) => {
 
   const jwksClient = _getJWKSClient(directoryUrl)
   const auth = _auth(directoryUrl, publicUrl, jwksClient, cookieName)
+  const requiredAuth = (req, res, next) => {
+    auth(req, res, err => {
+      if (err) return next(err)
+      if (!req.user) return res.status(401).send()
+      next()
+    })
+  }
   const decode = _decode(cookieName, publicUrl)
   const loginCallback = _loginCallback(directoryUrl, publicUrl, jwksClient, cookieName)
   const login = _login(directoryUrl, publicUrl)
@@ -30,7 +37,7 @@ module.exports = ({directoryUrl, publicUrl, cookieName}) => {
   router.post('/logout', logout)
   router.post('/keepalive', auth, (req, res) => res.status(204).send())
 
-  return {auth, decode, loginCallback, login, logout, router}
+  return {auth, requiredAuth, decode, loginCallback, login, logout, router}
 }
 
 // A cache of jwks clients, so that this module's main function can be called multiple times
