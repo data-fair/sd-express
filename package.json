@@ -1,6 +1,6 @@
 {
   "name": "simple-directory-client-express",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "description": "Middleware and router helpers to write expressjs applications that depend on simple-directory for authentication.",
   "main": "index.js",
   "scripts": {
