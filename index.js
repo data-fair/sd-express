@@ -58,12 +58,18 @@ function _getJWKSClient (directoryUrl) {
 function _getCookieToken (cookies, req, cookieName, publicUrl) {
   let token = cookies.get(cookieName)
   if (!token) return null
-  const reqOrigin = req.header('origin')
+  const reqOrigin = req.headers['origin']
   if (reqOrigin && reqOrigin !== new URL(publicUrl).origin) {
     debug(`A cookie was sent from origin ${reqOrigin} while public url is ${publicUrl}, ignore it`)
     return null
   }
-  return token + '.' + cookies.get(cookieName + '_sign')
+  // Putting the signature in a second token is recommended but optional
+  // and we accept full JWT in id_token cooke
+  const signature = cookies.get(cookieName + '_sign')
+  if (signature && (token.match(/\./g) || []).length === 1) {
+    token += '.' + signature
+  }
+  return token
 }
 
 // Split JWT strategy, the signature is in a httpOnly cookie for XSS prevention
