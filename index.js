@@ -93,11 +93,12 @@ function _setOrganization (cookies, cookieName, req, user) {
   const organizationId = cookies.get(cookieName + '_org') || req.headers['x-organizationid']
   if (organizationId) {
     user.organization = (user.organizations || []).find(o => o.id === organizationId)
-  }
-  if (user.organization) {
-    user.consumerFlag = user.organization.id
-  } else if (organizationId === '' || organizationId.toLowerCase() === 'user') {
-    user.consumerFlag = 'user'
+
+    if (user.organization) {
+      user.consumerFlag = user.organization.id
+    } else if (organizationId === '' || organizationId.toLowerCase() === 'user') {
+      user.consumerFlag = 'user'
+    }
   }
 }
 
