@@ -82,12 +82,22 @@ function _setCookieToken (cookies, cookieName, token, payload) {
   cookies.set(cookieName + '_sign', parts[2], {...opts, httpOnly: true})
 }
 
-// Use complementary cookie id_token_org to set the current active organization
-// of the user
+// Use complementary cookie id_token_org to set the current active organization of the user
+// also set consumerFlag that is used by applications to decide if they should ask confirmation to the user
+// of the right quotas or other organization related context to apply
+// it is 'user' if id_token_org is an empty string or is equal to 'user'
+// it is null if id_token_org is absent or if it does not match an organization of the current user
+// it is the id of the orga in id_token_org
 function _setOrganization (cookies, cookieName, req, user) {
+  if (!user) return
   const organizationId = cookies.get(cookieName + '_org') || req.headers['x-organizationid']
-  if (user && organizationId) {
+  if (organizationId) {
     user.organization = (user.organizations || []).find(o => o.id === organizationId)
+  }
+  if (user.organization) {
+    user.consumerFlag = user.organization.id
+  } else if (organizationId === '' || organizationId.toLowerCase() === 'user') {
+    user.consumerFlag = 'user'
   }
 }
 
