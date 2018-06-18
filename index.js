@@ -228,3 +228,27 @@ function _logout (cookieName) {
 function asyncWrap (route) {
   return (req, res, next) => route(req, res, next).catch(next)
 }
+
+// Adding a few things for testing purposes
+module.exports.maildevAuth = async (email, sdUrl = 'http://localhost:8080', maildevUrl = 'http://localhost:1080') => {
+  await axios.post(sdUrl + `/api/auth/passwordless`, {email}, {params: {redirect: sdUrl + `?id_token=`}})
+  const emails = (await axios.get(maildevUrl + '/email')).data
+  const host = new URL(sdUrl).host
+  const emailObj = emails
+    .reverse()
+    .find(e => e.subject.indexOf(host) !== -1 && e.to[0].address === email)
+  if (!emailObj) throw new Error('Failed to find email sent to ' + email)
+  const match = emailObj.text.match(/id_token=(.*)\s/)
+  if (!match) throw new Error('Failed to extract id_token from mail content')
+  return match[1]
+}
+
+const _axiosInstances = {}
+module.exports.axiosAuth = async (email, org, opts = {}, sdUrl = 'http://localhost:8080', maildevUrl = 'http://localhost:1080') => {
+  if (_axiosInstances[email]) return _axiosInstances[email]
+  const token = await module.exports.maildevAuth(email, sdUrl, maildevUrl)
+  opts.headers = opts.headers || {}
+  opts.headers.Cookie = `id_token=${token};id_token_org=${org}`
+  _axiosInstances[email] = axios.create(opts)
+  return _axiosInstances[email]
+}
