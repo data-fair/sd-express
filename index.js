@@ -248,7 +248,8 @@ module.exports.axiosAuth = async (email, org, opts = {}, sdUrl = 'http://localho
   if (_axiosInstances[email]) return _axiosInstances[email]
   const token = await module.exports.maildevAuth(email, sdUrl, maildevUrl)
   opts.headers = opts.headers || {}
-  opts.headers.Cookie = `id_token=${token};id_token_org=${org}`
+  opts.headers.Cookie = `id_token=${token}`
+  if (org) opts.headers.Cookie += `;id_token_org=${org}`
   _axiosInstances[email] = axios.create(opts)
   return _axiosInstances[email]
 }
