@@ -9,14 +9,15 @@ const Cookies = require('cookies')
 jwt.verifyAsync = util.promisify(jwt.verify)
 const debug = require('debug')('session')
 
-module.exports = ({directoryUrl, publicUrl, cookieName}) => {
+module.exports = ({directoryUrl, publicUrl, cookieName, privateDirectoryUrl}) => {
   assert.ok(!!directoryUrl, 'directoryUrl parameter is required')
   assert.ok(!!publicUrl, 'publicUrl parameter is required')
   cookieName = cookieName || 'id_token'
   debug('Init with parameters', {directoryUrl, publicUrl, cookieName})
+  privateDirectoryUrl = privateDirectoryUrl || directoryUrl
 
-  const jwksClient = _getJWKSClient(directoryUrl)
-  const auth = _auth(directoryUrl, publicUrl, jwksClient, cookieName)
+  const jwksClient = _getJWKSClient(privateDirectoryUrl)
+  const auth = _auth(privateDirectoryUrl, publicUrl, jwksClient, cookieName)
   const requiredAuth = (req, res, next) => {
     auth(req, res, err => {
       if (err) return next(err)
@@ -25,7 +26,7 @@ module.exports = ({directoryUrl, publicUrl, cookieName}) => {
     })
   }
   const decode = _decode(cookieName, publicUrl)
-  const loginCallback = _loginCallback(directoryUrl, publicUrl, jwksClient, cookieName)
+  const loginCallback = _loginCallback(privateDirectoryUrl, publicUrl, jwksClient, cookieName)
   const login = _login(directoryUrl, publicUrl)
   const logout = _logout(cookieName)
   const router = express.Router()
@@ -110,14 +111,14 @@ async function _verifyToken (jwksClient, token) {
 }
 
 // Exchange a token (because if was a temporary auth token of because it is too old)
-async function _exchangeToken (directoryUrl, token) {
-  const exchangeRes = await axios.post(directoryUrl + '/api/auth/exchange', null, {headers: {Authorization: 'Bearer ' + token}})
+async function _exchangeToken (privateDirectoryUrl, token) {
+  const exchangeRes = await axios.post(privateDirectoryUrl + '/api/auth/exchange', null, {headers: {Authorization: 'Bearer ' + token}})
   return exchangeRes.data
 }
 
 // This middleware detects that we are coming from an authentication link (probably in an email)
 // and creates a new session accordingly
-function _loginCallback (directoryUrl, publicUrl, jwksClient, cookieName, cookieOpts) {
+function _loginCallback (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieOpts) {
   return asyncWrap(async (req, res, next) => {
     // Get a JWT in a id_token query parameter = coming from a link in an email
     const linkToken = req.query.id_token
@@ -127,7 +128,7 @@ function _loginCallback (directoryUrl, publicUrl, jwksClient, cookieName, cookie
         debug(`Verify JWT token from the query parameter`)
         await _verifyToken(jwksClient, linkToken)
         debug('JWT token from query parameter is ok, exchange it for a long term session token')
-        const exchangedToken = await _exchangeToken(directoryUrl, linkToken)
+        const exchangedToken = await _exchangeToken(privateDirectoryUrl, linkToken)
         const payload = await _verifyToken(jwksClient, exchangedToken)
         debug('Exchanged token is ok, store it', payload)
         _setCookieToken(cookies, cookieName, exchangedToken, payload)
@@ -163,7 +164,7 @@ function _decode (cookieName, publicUrl) {
 
 // This middleware checks if a user has an active session with a valid token
 // it defines req.user and it can extend the session if necessary.
-function _auth (directoryUrl, publicUrl, jwksClient, cookieName) {
+function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName) {
   return asyncWrap(async (req, res, next) => {
     // JWT in a cookie = already active session
     const cookies = new Cookies(req, res)
@@ -193,7 +194,7 @@ function _auth (directoryUrl, publicUrl, jwksClient, cookieName) {
       if (tooOld) debug('The token was issued more than 12 hours ago, exchange it for a new one')
       if (shortLife) debug('The token will expire in less than half an hour, exchange it for a new one')
       if (tooOld || shortLife) {
-        const exchangedToken = await _exchangeToken(directoryUrl, token)
+        const exchangedToken = await _exchangeToken(privateDirectoryUrl, token)
         req.user = await _verifyToken(jwksClient, exchangedToken)
         _setOrganization(cookies, cookieName, req, req.user)
         debug('Exchanged token is ok, store it', req.user)
