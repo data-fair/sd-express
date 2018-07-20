@@ -1,4 +1,4 @@
-# simple-directory-express
+# Simple Directory - Express
 
 [![Build Status](https://travis-ci.org/koumoul-dev/sd-express.svg?branch=master)](https://travis-ci.org/koumoul-dev/sd-express)
 [![Coverage Status](https://coveralls.io/repos/github/koumoul-dev/sd-express/badge.svg?branch=master)](https://coveralls.io/github/koumoul-dev/sd-express?branch=master)
