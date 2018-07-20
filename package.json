@@ -1,5 +1,5 @@
 {
-  "name": "simple-directory-client-express",
+  "name": "@koumoul/sd-express",
   "version": "0.9.0",
   "description": "Middleware and router helpers to write expressjs applications that depend on simple-directory for authentication.",
   "main": "index.js",
@@ -10,7 +10,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/koumoul-dev/simple-directory-client-express.git"
+    "url": "git+https://github.com/koumoul-dev/sd-express.git"
   },
   "keywords": [
     "Simple",
@@ -22,9 +22,9 @@
   "author": "Alban Mouton <alban.mouton@gmail.com>",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/koumoul-dev/simple-directory-client-express/issues"
+    "url": "https://github.com/koumoul-dev/sd-express/issues"
   },
-  "homepage": "https://github.com/koumoul-dev/simple-directory-client-express#readme",
+  "homepage": "https://github.com/koumoul-dev/sd-express#readme",
   "dependencies": {
     "axios": "^0.18.0",
     "cookies": "^0.7.1",

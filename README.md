@@ -1,11 +1,11 @@
-# simple-directory-client-express
+# simple-directory-express
 
-[![Build Status](https://travis-ci.org/koumoul-dev/simple-directory-client-express.svg?branch=master)](https://travis-ci.org/koumoul-dev/simple-directory-client-express)
-[![Coverage Status](https://coveralls.io/repos/github/koumoul-dev/simple-directory-client-express/badge.svg?branch=master)](https://coveralls.io/github/koumoul-dev/simple-directory-client-express?branch=master)
+[![Build Status](https://travis-ci.org/koumoul-dev/sd-express.svg?branch=master)](https://travis-ci.org/koumoul-dev/sd-express)
+[![Coverage Status](https://coveralls.io/repos/github/koumoul-dev/sd-express/badge.svg?branch=master)](https://coveralls.io/github/koumoul-dev/sd-express?branch=master)
 
 Middleware and router helpers to write expressjs applications that depend on [simple-directory](https://koumoul-dev.github.io/simple-directory/) for authentication.
 
-    npm i simple-directory-client-express
+    npm i @koumoul/sd-express
 
 Initialization:
 
@@ -23,4 +23,4 @@ app.use('/ui', session.loginCallback, session.decode, uiRouter)
 app.use('/session', session.router)
 ```
 
-**TODO**: Proper documentation of options and functionalities. For now [the code is the doc](https://github.com/koumoul-dev/simple-directory-client-express/blob/master/index.js).
+**TODO**: Proper documentation of options and functionalities. For now [the code is the doc](https://github.com/koumoul-dev/sd-express/blob/master/index.js).
