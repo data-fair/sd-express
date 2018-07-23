@@ -137,7 +137,7 @@ function _loginCallback (privateDirectoryUrl, publicUrl, jwksClient, cookieName,
         // TODO: a way to display warning to user ? throw error ?
         debug('JWT token from query parameter is broken', err)
       }
-      const reloadUrl = new URL(publicUrl + req.url)
+      const reloadUrl = new URL(publicUrl + req.originalUrl)
       reloadUrl.searchParams.delete('id_token')
       debug('Reload current page without id_token query parameter', reloadUrl.toString())
       return res.redirect(reloadUrl.toString())
