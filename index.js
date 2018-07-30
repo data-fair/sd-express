@@ -91,7 +91,8 @@ function _setCookieToken (cookies, cookieName, token, payload) {
 // it is the id of the orga in id_token_org
 function _setOrganization (cookies, cookieName, req, user) {
   if (!user) return
-  const organizationId = cookies.get(cookieName + '_org') || req.headers['x-organizationid']
+  // The order is important. The header can set explicitly on a query even if the cookie contradicts.
+  const organizationId = req.headers['x-organizationid'] || cookies.get(cookieName + '_org')
   if (organizationId) {
     user.organization = (user.organizations || []).find(o => o.id === organizationId)
 
