@@ -36,7 +36,7 @@ module.exports = ({directoryUrl, publicUrl, cookieName, privateDirectoryUrl}) =>
     else res.send(req.user)
   })
   router.post('/logout', logout)
-  router.post('/keepalive', auth, (req, res) => res.status(204).send())
+  router.post('/keepalive', _auth(privateDirectoryUrl, publicUrl, jwksClient, cookieName, true), (req, res) => res.status(204).send())
 
   return {auth, requiredAuth, decode, loginCallback, login, logout, router}
 }
@@ -165,7 +165,7 @@ function _decode (cookieName, publicUrl) {
 
 // This middleware checks if a user has an active session with a valid token
 // it defines req.user and it can extend the session if necessary.
-function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName) {
+function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName, forceExchange) {
   return asyncWrap(async (req, res, next) => {
     // JWT in a cookie = already active session
     const cookies = new Cookies(req, res)
@@ -194,7 +194,8 @@ function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName) {
       const shortLife = timestamp > (req.user.exp - 1800)
       if (tooOld) debug('The token was issued more than 12 hours ago, exchange it for a new one')
       if (shortLife) debug('The token will expire in less than half an hour, exchange it for a new one')
-      if (tooOld || shortLife) {
+      if (forceExchange) debug('The token was explicitly required to be exchanged (keepalive route), exchange it for a new one')
+      if (tooOld || shortLife || forceExchange) {
         const exchangedToken = await _exchangeToken(privateDirectoryUrl, token)
         req.user = await _verifyToken(jwksClient, exchangedToken)
         _setOrganization(cookies, cookieName, req, req.user)
