@@ -9,11 +9,11 @@ const Cookies = require('cookies')
 jwt.verifyAsync = util.promisify(jwt.verify)
 const debug = require('debug')('session')
 
-module.exports = ({directoryUrl, publicUrl, cookieName, privateDirectoryUrl}) => {
+module.exports = ({ directoryUrl, publicUrl, cookieName, privateDirectoryUrl }) => {
   assert.ok(!!directoryUrl, 'directoryUrl parameter is required')
   assert.ok(!!publicUrl, 'publicUrl parameter is required')
   cookieName = cookieName || 'id_token'
-  debug('Init with parameters', {directoryUrl, publicUrl, cookieName})
+  debug('Init with parameters', { directoryUrl, publicUrl, cookieName })
   privateDirectoryUrl = privateDirectoryUrl || directoryUrl
 
   const jwksClient = _getJWKSClient(privateDirectoryUrl)
@@ -38,7 +38,7 @@ module.exports = ({directoryUrl, publicUrl, cookieName, privateDirectoryUrl}) =>
   router.post('/logout', logout)
   router.post('/keepalive', _auth(privateDirectoryUrl, publicUrl, jwksClient, cookieName, true), (req, res) => res.status(204).send())
 
-  return {auth, requiredAuth, decode, loginCallback, login, logout, router}
+  return { auth, requiredAuth, decode, loginCallback, login, logout, router }
 }
 
 // A cache of jwks clients, so that this module's main function can be called multiple times
@@ -78,9 +78,9 @@ function _getCookieToken (cookies, req, cookieName, publicUrl) {
 // all cookies use sameSite for CSRF prevention
 function _setCookieToken (cookies, cookieName, token, payload) {
   const parts = token.split('.')
-  const opts = {sameSite: 'lax', expires: new Date(payload.exp * 1000)}
-  cookies.set(cookieName, parts[0] + '.' + parts[1], {...opts, httpOnly: false})
-  cookies.set(cookieName + '_sign', parts[2], {...opts, httpOnly: true})
+  const opts = { sameSite: 'lax', expires: new Date(payload.exp * 1000) }
+  cookies.set(cookieName, parts[0] + '.' + parts[1], { ...opts, httpOnly: false })
+  cookies.set(cookieName + '_sign', parts[2], { ...opts, httpOnly: true })
 }
 
 // Use complementary cookie id_token_org to set the current active organization of the user
@@ -106,14 +106,14 @@ function _setOrganization (cookies, cookieName, req, user) {
 
 // Fetch the public info of signing key from the directory that acts as jwks provider
 async function _verifyToken (jwksClient, token) {
-  const decoded = jwt.decode(token, {complete: true})
+  const decoded = jwt.decode(token, { complete: true })
   const signingKey = await jwksClient.getSigningKeyAsync(decoded.header.kid)
   return jwt.verifyAsync(token, signingKey.publicKey || signingKey.rsaPublicKey)
 }
 
 // Exchange a token (because if was a temporary auth token of because it is too old)
 async function _exchangeToken (privateDirectoryUrl, token) {
-  const exchangeRes = await axios.post(privateDirectoryUrl + '/api/auth/exchange', null, {headers: {Authorization: 'Bearer ' + token}})
+  const exchangeRes = await axios.post(privateDirectoryUrl + '/api/auth/exchange', null, { headers: { Authorization: 'Bearer ' + token } })
   return exchangeRes.data
 }
 
@@ -234,7 +234,7 @@ function asyncWrap (route) {
 
 // Adding a few things for testing purposes
 module.exports.maildevAuth = async (email, sdUrl = 'http://localhost:8080', maildevUrl = 'http://localhost:1080') => {
-  await axios.post(sdUrl + `/api/auth/passwordless`, {email}, {params: {redirect: sdUrl + `?id_token=`}})
+  await axios.post(sdUrl + `/api/auth/passwordless`, { email }, { params: { redirect: sdUrl + `?id_token=` } })
   const emails = (await axios.get(maildevUrl + '/email')).data
   const host = new URL(sdUrl).host
   const emailObj = emails
