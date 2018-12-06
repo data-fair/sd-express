@@ -246,10 +246,22 @@ module.exports.maildevAuth = async (email, sdUrl = 'http://localhost:8080', mail
   return match[1]
 }
 
+module.exports.passwordAuth = async (email, password, sdUrl = 'http://localhost:8080') => {
+  const res = await axios.post(sdUrl + `/api/auth/password`, { email, password }, { params: { redirect: sdUrl + `?id_token=` }, maxRedirects: 0 })
+  const match = res.data.match(/id_token=(.*)/)
+  if (!match) throw new Error('Failed to extract id_token from response')
+  return match[1]
+}
+
 const _axiosInstances = {}
 module.exports.axiosAuth = async (email, org, opts = {}, sdUrl = 'http://localhost:8080', maildevUrl = 'http://localhost:1080') => {
   if (_axiosInstances[email]) return _axiosInstances[email]
-  const token = await module.exports.maildevAuth(email, sdUrl, maildevUrl)
+  let token
+  if (email.indexOf(':') !== -1) {
+    token = await module.exports.passwordAuth(email.split(':')[0], email.split(':')[1], sdUrl)
+  } else {
+    token = await module.exports.maildevAuth(email, sdUrl, maildevUrl)
+  }
   opts.headers = opts.headers || {}
   opts.headers.Cookie = `id_token=${token}`
   if (org) opts.headers.Cookie += `;id_token_org=${org}`
