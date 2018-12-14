@@ -28,7 +28,7 @@ module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDi
   const decode = _decode(cookieName, cookieDomain, publicUrl)
   const loginCallback = _loginCallback(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain)
   const login = _login(directoryUrl, publicUrl)
-  const logout = _logout(cookieName)
+  const logout = _logout(cookieName, cookieDomain)
   const router = express.Router()
   router.get('/login', login)
   router.get('/me', auth, (req, res) => {
@@ -193,8 +193,8 @@ function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDo
       } catch (err) {
         // Token expired or bad in another way.. delete the cookie
         debug('JWT token from cookie is broken, clear it', err)
-        cookies.set(cookieName)
-        cookies.set(cookieName + '_sign')
+        cookies.set(cookieName, null, { domain: cookieDomain })
+        cookies.set(cookieName + '_sign', null, { domain: cookieDomain })
       }
     }
 
@@ -232,11 +232,11 @@ function _login (directoryUrl, publicUrl) {
 
 // Sessions are only the persistence of the JWT token in cookies
 // no need to call the directory
-function _logout (cookieName) {
+function _logout (cookieName, cookieDomain) {
   return (req, res) => {
     const cookies = new Cookies(req, res)
-    cookies.set(cookieName)
-    cookies.set(cookieName + '_sign')
+    cookies.set(cookieName, null, { domain: cookieDomain })
+    cookies.set(cookieName + '_sign', null, { domain: cookieDomain })
     res.status(204).send()
   }
 }
