@@ -25,7 +25,7 @@ module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDi
       next()
     })
   }
-  const decode = _decode(cookieName, publicUrl)
+  const decode = _decode(cookieName, cookieDomain, publicUrl)
   const loginCallback = _loginCallback(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain)
   const login = _login(directoryUrl, publicUrl)
   const logout = _logout(cookieName)
@@ -56,14 +56,22 @@ function _getJWKSClient (directoryUrl) {
 }
 
 // Fetch a session token from cookies if the same site policy is respected
-function _getCookieToken (cookies, req, cookieName, publicUrl) {
+function _getCookieToken (cookies, req, cookieName, cookieDomain, publicUrl) {
   let token = cookies.get(cookieName)
   if (!token) return null
   const reqOrigin = req.headers['origin']
-  if (reqOrigin && reqOrigin !== new URL(publicUrl).origin) {
+  // check that the origin of the request is part of the accepted domain
+  if (reqOrigin && cookieDomain && !reqOrigin.endsWith(cookieDomain)) {
+    debug(`A cookie was sent from origin ${reqOrigin} while cookie domain is ${cookieDomain}, ignore it`)
+    return null
+  }
+  // or simply that it is strictly equal to current target if domain is unspecified
+  // in this case we are also protected by sameSite
+  if (reqOrigin && !cookieDomain && reqOrigin !== new URL(publicUrl).origin) {
     debug(`A cookie was sent from origin ${reqOrigin} while public url is ${publicUrl}, ignore it`)
     return null
   }
+
   // Putting the signature in a second token is recommended but optional
   // and we accept full JWT in id_token cooke
   const signature = cookies.get(cookieName + '_sign')
@@ -79,7 +87,12 @@ function _getCookieToken (cookies, req, cookieName, publicUrl) {
 function _setCookieToken (cookies, cookieName, cookieDomain, token, payload) {
   const parts = token.split('.')
   const opts = { sameSite: 'lax', expires: new Date(payload.exp * 1000) }
-  if (cookieDomain) opts.domain = cookieDomain
+  if (cookieDomain) {
+    opts.domain = cookieDomain
+    // to support subdomains we can't use the sameSite opt
+    // we rely on our manual check of the origin
+    delete opts.sameSite
+  }
   cookies.set(cookieName, parts[0] + '.' + parts[1], { ...opts, httpOnly: false })
   cookies.set(cookieName + '_sign', parts[2], { ...opts, httpOnly: true })
 }
@@ -151,11 +164,11 @@ function _loginCallback (privateDirectoryUrl, publicUrl, jwksClient, cookieName,
 // This middleware checks if a user has an active session and defines req.user
 // Contrary to auth it does not validate the token, only decode it..
 // so it faster but it is limited to routes where req.user is informative
-function _decode (cookieName, publicUrl) {
+function _decode (cookieName, cookieDomain, publicUrl) {
   return (req, res, next) => {
     // JWT in a cookie = already active session
     const cookies = new Cookies(req, res)
-    const token = _getCookieToken(cookies, req, cookieName, publicUrl)
+    const token = _getCookieToken(cookies, req, cookieName, cookieDomain, publicUrl)
     if (token) {
       req.user = jwt.decode(token)
       _setOrganization(cookies, cookieName, req, req.user)
@@ -170,7 +183,7 @@ function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDo
   return asyncWrap(async (req, res, next) => {
     // JWT in a cookie = already active session
     const cookies = new Cookies(req, res)
-    const token = _getCookieToken(cookies, req, cookieName, publicUrl)
+    const token = _getCookieToken(cookies, req, cookieName, cookieDomain, publicUrl)
     if (token) {
       try {
         debug(`Verify JWT token from the ${cookieName} cookie`)
