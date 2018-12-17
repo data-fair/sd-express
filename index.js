@@ -195,6 +195,11 @@ function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDo
         debug('JWT token from cookie is broken, clear it', err)
         cookies.set(cookieName, null, { domain: cookieDomain })
         cookies.set(cookieName + '_sign', null, { domain: cookieDomain })
+        // case where the cookies were set before assigning domain
+        if (cookies.get(cookieName)) {
+          cookies.set(cookieName, null)
+          cookies.set(cookieName + '_sign', null)
+        }
       }
     }
 
@@ -237,6 +242,11 @@ function _logout (cookieName, cookieDomain) {
     const cookies = new Cookies(req, res)
     cookies.set(cookieName, null, { domain: cookieDomain })
     cookies.set(cookieName + '_sign', null, { domain: cookieDomain })
+    // case where the cookies were set before assigning domain
+    if (cookies.get(cookieName)) {
+      cookies.set(cookieName, null)
+      cookies.set(cookieName + '_sign', null)
+    }
     res.status(204).send()
   }
 }
