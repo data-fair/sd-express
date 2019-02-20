@@ -99,7 +99,7 @@ function _getCookieToken (cookies, req, cookieName, cookieDomain, publicUrl) {
   let token = cookies.get(cookieName)
   if (!token) return null
   const reqOrigin = req.headers['origin']
-  const originDomain = new URL(reqOrigin).host
+  const originDomain = reqOrigin && new URL(reqOrigin).host
 
   // check that the origin of the request is part of the accepted domain
   if (reqOrigin && cookieDomain && originDomain !== cookieDomain && !originDomain.endsWith('.' + cookieDomain)) {
