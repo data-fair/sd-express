@@ -6,6 +6,7 @@ const express = require('express')
 const jwt = require('jsonwebtoken')
 const jwksRsa = require('jwks-rsa')
 const Cookies = require('cookies')
+const corsBuilder = require('cors')
 jwt.verifyAsync = util.promisify(jwt.verify)
 const debug = require('debug')('session')
 
@@ -29,6 +30,7 @@ module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDi
   const loginCallback = _loginCallback(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain)
   const login = _login(directoryUrl, publicUrl)
   const logout = _logout(cookieName, cookieDomain)
+  const cors = _cors(cookieDomain, publicUrl)
   const router = express.Router()
   router.get('/login', login)
   router.get('/me', auth, (req, res) => {
@@ -38,7 +40,7 @@ module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDi
   router.post('/logout', logout)
   router.post('/keepalive', _auth(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, true), (req, res) => res.status(204).send())
 
-  return { auth, requiredAuth, decode, loginCallback, login, logout, router }
+  return { auth, requiredAuth, decode, loginCallback, login, logout, cors, router }
 }
 
 // A cache of jwks clients, so that this module's main function can be called multiple times
@@ -55,13 +57,52 @@ function _getJWKSClient (directoryUrl) {
   return jwksClients[directoryUrl]
 }
 
+// Return a function that can build a CORS middleware
+function _cors (cookieDomain, publicUrl) {
+  return ({ acceptServers, acceptAllOrigins }) => {
+    // accept server 2 server requests by default
+    acceptServers = acceptServers === undefined ? true : acceptServers
+    // do not accept call by outside origins by default
+    acceptAllOrigins = acceptAllOrigins === undefined ? false : acceptAllOrigins
+    return corsBuilder({
+      credentials: true,
+      origin (origin, callback) {
+        // Case of server to server requests
+        if (!origin) {
+          if (acceptServers) return callback(null, true)
+          return callback(new Error('No CORS allowed for server to server requests'))
+        }
+
+        // Case where we accept any domain as origin
+        if (acceptAllOrigins) return callback(null, true)
+
+        const originDomain = new URL(origin).host
+
+        // Case of mono-domain acceptance
+        if (!cookieDomain) {
+          if (originDomain === new URL(publicUrl).host) return callback(null, true)
+          return callback(new Error(`No CORS allowed from origin ${origin}`))
+        }
+
+        // Case of subdomains acceptance
+        if (originDomain === cookieDomain || originDomain.endsWith('.' + cookieDomain)) {
+          return callback(null, true)
+        }
+        callback(new Error(`No CORS allowed from origin ${origin}`))
+      }
+    })
+  }
+}
+
 // Fetch a session token from cookies if the same site policy is respected
 function _getCookieToken (cookies, req, cookieName, cookieDomain, publicUrl) {
   let token = cookies.get(cookieName)
   if (!token) return null
   const reqOrigin = req.headers['origin']
+  const originDomain = new URL(reqOrigin).host
+
   // check that the origin of the request is part of the accepted domain
-  if (reqOrigin && cookieDomain && !reqOrigin.endsWith(cookieDomain)) {
+  if (reqOrigin && cookieDomain && originDomain !== cookieDomain && !originDomain.endsWith('.' + cookieDomain)) {
     debug(`A cookie was sent from origin ${reqOrigin} while cookie domain is ${cookieDomain}, ignore it`)
     return null
   }
