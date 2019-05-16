@@ -159,6 +159,12 @@ function _setOrganization (cookies, cookieName, req, user) {
   }
 }
 
+// Use complementary cookie id_token_admin to detect that the user is in activated admin mode
+function _setAdminMode (cookies, cookieName, req, user) {
+  if (!user) return
+  user.adminMode = user.isAdmin && (cookies.get(cookieName + '_admin') === 'true')
+}
+
 // Fetch the public info of signing key from the directory that acts as jwks provider
 async function _verifyToken (jwksClient, token) {
   const decoded = jwt.decode(token, { complete: true })
@@ -213,6 +219,7 @@ function _decode (cookieName, cookieDomain, publicUrl) {
     if (token) {
       req.user = jwt.decode(token)
       _setOrganization(cookies, cookieName, req, req.user)
+      _setAdminMode(cookies, cookieName, req, req.user)
     }
     next()
   }
@@ -230,6 +237,7 @@ function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDo
         debug(`Verify JWT token from the ${cookieName} cookie`)
         req.user = await _verifyToken(jwksClient, token)
         _setOrganization(cookies, cookieName, req, req.user)
+        _setAdminMode(cookies, cookieName, req, req.user)
         debug('JWT token from cookie is ok', req.user)
       } catch (err) {
         // Token expired or bad in another way.. delete the cookie
@@ -259,6 +267,7 @@ function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDo
         const exchangedToken = await _exchangeToken(privateDirectoryUrl, token)
         req.user = await _verifyToken(jwksClient, exchangedToken)
         _setOrganization(cookies, cookieName, req, req.user)
+        _setAdminMode(cookies, cookieName, req, req.user)
         debug('Exchanged token is ok, store it', req.user)
         _setCookieToken(cookies, cookieName, cookieDomain, exchangedToken, req.user)
       }
@@ -329,7 +338,7 @@ module.exports.axiosAuth = async (email, org, opts = {}, sdUrl = 'http://localho
   }
   opts.headers = opts.headers || {}
   opts.headers.Cookie = `id_token=${token}`
-  if (org) opts.headers.Cookie += `;id_token_org=${org}`
+  if (org) opts.headers.Cookie += `;id_token_org=${org};id_token_admin=true`
   _axiosInstances[email] = axios.create(opts)
   return _axiosInstances[email]
 }
