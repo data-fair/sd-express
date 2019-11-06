@@ -38,7 +38,7 @@ module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDi
     else res.send(req.user)
   })
   router.post('/logout', logout)
-  router.post('/keepalive', _auth(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, true), (req, res) => res.status(204).send())
+  router.post('/keepalive', _auth(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, true), (req, res) => res.status(204).send(req.user))
 
   return { auth, requiredAuth, decode, loginCallback, login, logout, cors, router }
 }
