@@ -204,6 +204,7 @@ function _loginCallback (privateDirectoryUrl, publicUrl, jwksClient, cookieName,
       }
       const reloadUrl = new URL(publicUrl + req.originalUrl)
       reloadUrl.searchParams.delete('id_token')
+      reloadUrl.searchParams.delete('id_token_org')
       debug('Reload current page without id_token query parameter', reloadUrl.toString())
       return res.redirect(reloadUrl.toString())
     }
