@@ -125,7 +125,7 @@ function _getCookieToken (cookies, req, cookieName, cookieDomain, publicUrl) {
 // Split JWT strategy, the signature is in a httpOnly cookie for XSS prevention
 // the header and payload are not httpOnly to be readable by client
 // all cookies use sameSite for CSRF prevention
-function _setCookieToken (cookies, cookieName, cookieDomain, token, payload) {
+function _setCookieToken (cookies, cookieName, cookieDomain, token, payload, org) {
   const parts = token.split('.')
   const opts = { sameSite: 'lax', expires: new Date(payload.exp * 1000) }
   if (cookieDomain) {
@@ -136,6 +136,9 @@ function _setCookieToken (cookies, cookieName, cookieDomain, token, payload) {
   }
   cookies.set(cookieName, parts[0] + '.' + parts[1], { ...opts, httpOnly: false })
   cookies.set(cookieName + '_sign', parts[2], { ...opts, httpOnly: true })
+  if (org) {
+    cookies.set(cookieName + '_org', org, { ...opts, httpOnly: false })
+  }
 }
 
 // Use complementary cookie id_token_org to set the current active organization of the user
@@ -193,7 +196,7 @@ function _loginCallback (privateDirectoryUrl, publicUrl, jwksClient, cookieName,
         const exchangedToken = await _exchangeToken(privateDirectoryUrl, linkToken)
         const payload = await _verifyToken(jwksClient, exchangedToken)
         debug('Exchanged token is ok, store it', payload)
-        _setCookieToken(cookies, cookieName, cookieDomain, exchangedToken, payload)
+        _setCookieToken(cookies, cookieName, cookieDomain, exchangedToken, payload, req.query.id_token_org)
       } catch (err) {
         // Token expired or bad in another way..
         // TODO: a way to display warning to user ? throw error ?
