@@ -39,6 +39,8 @@ module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDi
   })
   router.post('/logout', logout)
   router.post('/keepalive', _auth(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, true), (req, res) => res.status(204).send(req.user))
+  router.post('/asadmin', _asAdmin(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain), (req, res) => res.status(204).send(req.user))
+  router.delete('/asadmin', _delAsAdmin(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain), (req, res) => res.status(204).send(req.user))
 
   return { auth, requiredAuth, decode, loginCallback, login, logout, cors, router }
 }
@@ -276,6 +278,38 @@ function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDo
         _setCookieToken(cookies, cookieName, cookieDomain, exchangedToken, req.user)
       }
     }
+    next()
+  })
+}
+
+function _asAdmin (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain) {
+  return asyncWrap(async (req, res, next) => {
+    // JWT in a cookie = already active session
+    const cookies = new Cookies(req, res)
+    const token = _getCookieToken(cookies, req, cookieName, cookieDomain, publicUrl)
+    console.log('TOKEN', token)
+    const asAdminToken = (await axios.post(privateDirectoryUrl + '/api/auth/asadmin', req.body, { headers: { Authorization: 'Bearer ' + token } })).data
+    req.user = await _verifyToken(jwksClient, asAdminToken)
+    _setOrganization(cookies, cookieName, req, req.user)
+    _setAdminMode(cookies, cookieName, req, req.user)
+    debug('Exchanged token is ok, store it', req.user)
+    _setCookieToken(cookies, cookieName, cookieDomain, asAdminToken, req.user)
+    next()
+  })
+}
+
+function _delAsAdmin (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain) {
+  return asyncWrap(async (req, res, next) => {
+    // JWT in a cookie = already active session
+    const cookies = new Cookies(req, res)
+    const token = _getCookieToken(cookies, req, cookieName, cookieDomain, publicUrl)
+    console.log('DEL TOKEN', token)
+    const normalToken = (await axios.delete(privateDirectoryUrl + '/api/auth/asadmin', { headers: { Authorization: 'Bearer ' + token } })).data
+    req.user = await _verifyToken(jwksClient, normalToken)
+    _setOrganization(cookies, cookieName, req, req.user)
+    _setAdminMode(cookies, cookieName, req, req.user)
+    debug('Exchanged token is ok, store it', req.user)
+    _setCookieToken(cookies, cookieName, cookieDomain, normalToken, req.user)
     next()
   })
 }
