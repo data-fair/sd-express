@@ -41,6 +41,7 @@ module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDi
   router.post('/keepalive', _auth(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, true), (req, res) => res.status(204).send(req.user))
   router.post('/asadmin', _asAdmin(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain), (req, res) => res.status(204).send(req.user))
   router.delete('/asadmin', _delAsAdmin(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain), (req, res) => res.status(204).send(req.user))
+  router.delete('/adminmode', _delAdminMode(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain), (req, res) => res.status(204).send(req.user))
 
   return { auth, requiredAuth, decode, loginCallback, login, logout, cors, router }
 }
@@ -129,7 +130,8 @@ function _getCookieToken (cookies, req, cookieName, cookieDomain, publicUrl) {
 // all cookies use sameSite for CSRF prevention
 function _setCookieToken (cookies, cookieName, cookieDomain, token, payload, org) {
   const parts = token.split('.')
-  const opts = { sameSite: 'lax', expires: new Date(payload.exp * 1000) }
+  const opts = { sameSite: 'lax' }
+  if (!payload.adminMode) opts.expires = new Date(payload.exp * 1000)
   if (cookieDomain) {
     opts.domain = cookieDomain
     // to support subdomains we can't use the sameSite opt
@@ -164,12 +166,6 @@ function _setOrganization (cookies, cookieName, req, user) {
   }
 }
 
-// Use complementary cookie id_token_admin to detect that the user is in activated admin mode
-function _setAdminMode (cookies, cookieName, req, user) {
-  if (!user) return
-  user.adminMode = user.isAdmin && (cookies.get(cookieName + '_admin') === 'true')
-}
-
 // Fetch the public info of signing key from the directory that acts as jwks provider
 async function _verifyToken (jwksClient, token) {
   const decoded = jwt.decode(token, { complete: true })
@@ -178,8 +174,8 @@ async function _verifyToken (jwksClient, token) {
 }
 
 // Exchange a token (because if was a temporary auth token of because it is too old)
-async function _exchangeToken (privateDirectoryUrl, token) {
-  const exchangeRes = await axios.post(privateDirectoryUrl + '/api/auth/exchange', null, { headers: { Authorization: 'Bearer ' + token } })
+async function _exchangeToken (privateDirectoryUrl, token, params) {
+  const exchangeRes = await axios.post(privateDirectoryUrl + '/api/auth/exchange', null, { headers: { Authorization: 'Bearer ' + token }, params })
   return exchangeRes.data
 }
 
@@ -225,7 +221,6 @@ function _decode (cookieName, cookieDomain, publicUrl) {
     if (token) {
       req.user = jwt.decode(token)
       _setOrganization(cookies, cookieName, req, req.user)
-      _setAdminMode(cookies, cookieName, req, req.user)
     }
     next()
   }
@@ -243,7 +238,6 @@ function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDo
         debug(`Verify JWT token from the ${cookieName} cookie`)
         req.user = await _verifyToken(jwksClient, token)
         _setOrganization(cookies, cookieName, req, req.user)
-        _setAdminMode(cookies, cookieName, req, req.user)
         debug('JWT token from cookie is ok', req.user)
       } catch (err) {
         // Token expired or bad in another way.. delete the cookie
@@ -273,7 +267,6 @@ function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDo
         const exchangedToken = await _exchangeToken(privateDirectoryUrl, token)
         req.user = await _verifyToken(jwksClient, exchangedToken)
         _setOrganization(cookies, cookieName, req, req.user)
-        _setAdminMode(cookies, cookieName, req, req.user)
         debug('Exchanged token is ok, store it', req.user)
         _setCookieToken(cookies, cookieName, cookieDomain, exchangedToken, req.user)
       }
@@ -291,7 +284,6 @@ function _asAdmin (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cooki
     const asAdminToken = (await axios.post(privateDirectoryUrl + '/api/auth/asadmin', req.body, { headers: { Authorization: 'Bearer ' + token } })).data
     req.user = await _verifyToken(jwksClient, asAdminToken)
     _setOrganization(cookies, cookieName, req, req.user)
-    _setAdminMode(cookies, cookieName, req, req.user)
     debug('Exchanged token is ok, store it', req.user)
     _setCookieToken(cookies, cookieName, cookieDomain, asAdminToken, req.user)
     next()
@@ -303,11 +295,23 @@ function _delAsAdmin (privateDirectoryUrl, publicUrl, jwksClient, cookieName, co
     // JWT in a cookie = already active session
     const cookies = new Cookies(req, res)
     const token = _getCookieToken(cookies, req, cookieName, cookieDomain, publicUrl)
-    console.log('DEL TOKEN', token)
     const normalToken = (await axios.delete(privateDirectoryUrl + '/api/auth/asadmin', { headers: { Authorization: 'Bearer ' + token } })).data
     req.user = await _verifyToken(jwksClient, normalToken)
     _setOrganization(cookies, cookieName, req, req.user)
-    _setAdminMode(cookies, cookieName, req, req.user)
+    debug('Exchanged token is ok, store it', req.user)
+    _setCookieToken(cookies, cookieName, cookieDomain, normalToken, req.user)
+    next()
+  })
+}
+
+function _delAdminMode (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain) {
+  return asyncWrap(async (req, res, next) => {
+    // JWT in a cookie = already active session
+    const cookies = new Cookies(req, res)
+    const token = _getCookieToken(cookies, req, cookieName, cookieDomain, publicUrl)
+    const normalToken = (await axios.post(privateDirectoryUrl + '/api/auth/exchange', null, { headers: { Authorization: 'Bearer ' + token }, params: { noAdmin: true } })).data
+    req.user = await _verifyToken(jwksClient, normalToken)
+    _setOrganization(cookies, cookieName, req, req.user)
     debug('Exchanged token is ok, store it', req.user)
     _setCookieToken(cookies, cookieName, cookieDomain, normalToken, req.user)
     next()
@@ -319,7 +323,10 @@ function _delAsAdmin (privateDirectoryUrl, publicUrl, jwksClient, cookieName, co
 // to send along some optional client id or any kind of trust enhancing secret
 function _login (directoryUrl, publicUrl) {
   return (req, res) => {
-    res.redirect(directoryUrl + '/login?redirect=' + encodeURIComponent(req.query.redirect || publicUrl))
+    let url = directoryUrl + '/login?redirect=' + encodeURIComponent(req.query.redirect || publicUrl)
+    if (req.query.email) url += `&email=${req.query.email}`
+    if (req.query.adminMode) url += `&adminMode=${req.query.adminMode}`
+    res.redirect(url)
   }
 }
 
