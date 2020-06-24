@@ -161,7 +161,7 @@ function _setOrganization (cookies, cookieName, req, user) {
 
     if (user.organization) {
       user.consumerFlag = user.organization.id
-      user.activeAccount = { type: 'organization', id: user.organization.id, name: user.organization.name }
+      user.activeAccount = { ...user.organization, type: 'organization' }
     } else if (organizationId === '' || organizationId.toLowerCase() === 'user') {
       user.consumerFlag = 'user'
     }
