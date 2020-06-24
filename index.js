@@ -155,11 +155,13 @@ function _setOrganization (cookies, cookieName, req, user) {
   if (!user) return
   // The order is important. The header can set explicitly on a query even if the cookie contradicts.
   const organizationId = req.headers['x-organizationid'] || cookies.get(cookieName + '_org')
+  user.activeAccount = { type: 'user', id: user.id, name: user.name }
   if (organizationId) {
     user.organization = (user.organizations || []).find(o => o.id === organizationId)
 
     if (user.organization) {
       user.consumerFlag = user.organization.id
+      user.activeAccount = { type: 'organization', id: user.organization.id, name: user.organization.name }
     } else if (organizationId === '' || organizationId.toLowerCase() === 'user') {
       user.consumerFlag = 'user'
     }
