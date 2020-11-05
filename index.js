@@ -10,7 +10,7 @@ const corsBuilder = require('cors')
 jwt.verifyAsync = util.promisify(jwt.verify)
 const debug = require('debug')('session')
 
-module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDirectoryUrl }) => {
+module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDirectoryUrl, sameSite }) => {
   assert.ok(!!directoryUrl, 'directoryUrl parameter is required')
   assert.ok(!!publicUrl, 'publicUrl parameter is required')
   cookieName = cookieName || 'id_token'
@@ -18,7 +18,7 @@ module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDi
   privateDirectoryUrl = privateDirectoryUrl || directoryUrl
 
   const jwksClient = _getJWKSClient(privateDirectoryUrl)
-  const auth = _auth(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain)
+  const auth = _auth(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, false, sameSite)
   const requiredAuth = (req, res, next) => {
     auth(req, res, err => {
       if (err) return next(err)
@@ -27,7 +27,7 @@ module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDi
     })
   }
   const decode = _decode(cookieName, cookieDomain, publicUrl)
-  const loginCallback = _loginCallback(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain)
+  const loginCallback = _loginCallback(directoryUrl, privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite)
   const login = _login(directoryUrl, publicUrl)
   const logout = _logout(cookieName, cookieDomain)
   const cors = _cors(cookieDomain, publicUrl)
@@ -38,10 +38,10 @@ module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDi
     else res.send(req.user)
   })
   router.post('/logout', logout)
-  router.post('/keepalive', _auth(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, true), (req, res) => res.status(204).send(req.user))
-  router.post('/asadmin', _asAdmin(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain), (req, res) => res.status(204).send(req.user))
-  router.delete('/asadmin', _delAsAdmin(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain), (req, res) => res.status(204).send(req.user))
-  router.delete('/adminmode', _delAdminMode(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain), (req, res) => res.status(204).send(req.user))
+  router.post('/keepalive', _auth(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, true, sameSite), (req, res) => res.status(204).send(req.user))
+  router.post('/asadmin', _asAdmin(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite), (req, res) => res.status(204).send(req.user))
+  router.delete('/asadmin', _delAsAdmin(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite), (req, res) => res.status(204).send(req.user))
+  router.delete('/adminmode', _delAdminMode(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite), (req, res) => res.status(204).send(req.user))
 
   return { auth, requiredAuth, decode, loginCallback, login, logout, cors, router }
 }
@@ -128,7 +128,7 @@ function _getCookieToken (cookies, req, cookieName, cookieDomain, publicUrl) {
 // Split JWT strategy, the signature is in a httpOnly cookie for XSS prevention
 // the header and payload are not httpOnly to be readable by client
 // all cookies use sameSite for CSRF prevention
-function _setCookieToken (cookies, cookieName, cookieDomain, token, payload, org) {
+function _setCookieToken (cookies, cookieName, cookieDomain, token, payload, org, sameSite) {
   const parts = token.split('.')
   const opts = { sameSite: 'lax' }
   if (!payload.adminMode) opts.expires = new Date(payload.exp * 1000)
@@ -138,6 +138,7 @@ function _setCookieToken (cookies, cookieName, cookieDomain, token, payload, org
     // we rely on our manual check of the origin
     delete opts.sameSite
   }
+  if (sameSite) opts.sameSite = sameSite
   cookies.set(cookieName, parts[0] + '.' + parts[1], { ...opts, httpOnly: false })
   cookies.set(cookieName + '_sign', parts[2], { ...opts, httpOnly: true })
   if (org) {
@@ -183,12 +184,15 @@ async function _exchangeToken (privateDirectoryUrl, token, params) {
 
 // This middleware detects that we are coming from an authentication link (probably in an email)
 // and creates a new session accordingly
-function _loginCallback (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain) {
+function _loginCallback (directoryUrl, privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite) {
   return asyncWrap(async (req, res, next) => {
     // Get a JWT in a id_token query parameter = coming from a link in an email
     const linkToken = req.query.id_token
     if (linkToken) {
       const cookies = new Cookies(req, res)
+      const reloadUrl = new URL(publicUrl + req.originalUrl)
+      reloadUrl.searchParams.delete('id_token')
+      reloadUrl.searchParams.delete('id_token_org')
       try {
         debug(`Verify JWT token from the query parameter`)
         await _verifyToken(jwksClient, linkToken)
@@ -196,15 +200,12 @@ function _loginCallback (privateDirectoryUrl, publicUrl, jwksClient, cookieName,
         const exchangedToken = await _exchangeToken(privateDirectoryUrl, linkToken)
         const payload = await _verifyToken(jwksClient, exchangedToken)
         debug('Exchanged token is ok, store it', payload)
-        _setCookieToken(cookies, cookieName, cookieDomain, exchangedToken, payload, req.query.id_token_org)
+        _setCookieToken(cookies, cookieName, cookieDomain, exchangedToken, payload, req.query.id_token_org, sameSite)
       } catch (err) {
-        // Token expired or bad in another way..
-        // TODO: a way to display warning to user ? throw error ?
         debug('JWT token from query parameter is broken', err)
+        _login(directoryUrl, reloadUrl)
       }
-      const reloadUrl = new URL(publicUrl + req.originalUrl)
-      reloadUrl.searchParams.delete('id_token')
-      reloadUrl.searchParams.delete('id_token_org')
+
       debug('Reload current page without id_token query parameter', reloadUrl.toString())
       return res.redirect(reloadUrl.toString())
     }
@@ -230,7 +231,7 @@ function _decode (cookieName, cookieDomain, publicUrl) {
 
 // This middleware checks if a user has an active session with a valid token
 // it defines req.user and it can extend the session if necessary.
-function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, forceExchange) {
+function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, forceExchange, sameSite) {
   return asyncWrap(async (req, res, next) => {
     // JWT in a cookie = already active session
     const cookies = new Cookies(req, res)
@@ -270,14 +271,14 @@ function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDo
         req.user = await _verifyToken(jwksClient, exchangedToken)
         _setOrganization(cookies, cookieName, req, req.user)
         debug('Exchanged token is ok, store it', req.user)
-        _setCookieToken(cookies, cookieName, cookieDomain, exchangedToken, req.user)
+        _setCookieToken(cookies, cookieName, cookieDomain, exchangedToken, req.user, null, sameSite)
       }
     }
     next()
   })
 }
 
-function _asAdmin (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain) {
+function _asAdmin (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite) {
   return asyncWrap(async (req, res, next) => {
     // JWT in a cookie = already active session
     const cookies = new Cookies(req, res)
@@ -287,12 +288,12 @@ function _asAdmin (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cooki
     req.user = await _verifyToken(jwksClient, asAdminToken)
     _setOrganization(cookies, cookieName, req, req.user)
     debug('Exchanged token is ok, store it', req.user)
-    _setCookieToken(cookies, cookieName, cookieDomain, asAdminToken, req.user)
+    _setCookieToken(cookies, cookieName, cookieDomain, asAdminToken, req.user, null, sameSite)
     next()
   })
 }
 
-function _delAsAdmin (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain) {
+function _delAsAdmin (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite) {
   return asyncWrap(async (req, res, next) => {
     // JWT in a cookie = already active session
     const cookies = new Cookies(req, res)
@@ -301,12 +302,12 @@ function _delAsAdmin (privateDirectoryUrl, publicUrl, jwksClient, cookieName, co
     req.user = await _verifyToken(jwksClient, normalToken)
     _setOrganization(cookies, cookieName, req, req.user)
     debug('Exchanged token is ok, store it', req.user)
-    _setCookieToken(cookies, cookieName, cookieDomain, normalToken, req.user)
+    _setCookieToken(cookies, cookieName, cookieDomain, normalToken, req.user, null, sameSite)
     next()
   })
 }
 
-function _delAdminMode (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain) {
+function _delAdminMode (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite) {
   return asyncWrap(async (req, res, next) => {
     // JWT in a cookie = already active session
     const cookies = new Cookies(req, res)
@@ -315,7 +316,7 @@ function _delAdminMode (privateDirectoryUrl, publicUrl, jwksClient, cookieName, 
     req.user = await _verifyToken(jwksClient, normalToken)
     _setOrganization(cookies, cookieName, req, req.user)
     debug('Exchanged token is ok, store it', req.user)
-    _setCookieToken(cookies, cookieName, cookieDomain, normalToken, req.user)
+    _setCookieToken(cookies, cookieName, cookieDomain, normalToken, req.user, null, sameSite)
     next()
   })
 }
