@@ -102,7 +102,7 @@ function _getCookieToken (cookies, req, cookieName, cookieDomain, publicUrl) {
   let token = cookies.get(cookieName)
   if (!token) return null
   const reqOrigin = req.headers['origin']
-  const originDomain = reqOrigin && new URL(reqOrigin).host
+  const originDomain = reqOrigin && new URL(reqOrigin).hostname
 
   // check that the origin of the request is part of the accepted domain
   if (reqOrigin && cookieDomain && originDomain !== cookieDomain && !originDomain.endsWith('.' + cookieDomain)) {
@@ -111,7 +111,7 @@ function _getCookieToken (cookies, req, cookieName, cookieDomain, publicUrl) {
   }
   // or simply that it is strictly equal to current target if domain is unspecified
   // in this case we are also protected by sameSite
-  if (reqOrigin && !cookieDomain && reqOrigin !== new URL(publicUrl).origin) {
+  if (reqOrigin && !cookieDomain && originDomain !== new URL(publicUrl).hostname) {
     debug(`A cookie was sent from origin ${reqOrigin} while public url is ${publicUrl}, ignore it`)
     return null
   }
