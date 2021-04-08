@@ -190,7 +190,10 @@ function _loginCallback (directoryUrl, privateDirectoryUrl, publicUrl, jwksClien
     const linkToken = req.query.id_token
     if (linkToken) {
       const cookies = new Cookies(req, res)
-      const reloadUrl = new URL(publicUrl + req.originalUrl)
+      let reloadUrl = new URL(publicUrl + req.originalUrl)
+      if (req.hostname && !publicUrl.includes(req.hostname)) {
+        reloadUrl = new URL(`${req.protocol}://${req.hostname}${req.originalUrl}`)
+      }
       reloadUrl.searchParams.delete('id_token')
       reloadUrl.searchParams.delete('id_token_org')
       try {
