@@ -31,6 +31,7 @@ module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDi
   const login = _login(directoryUrl, publicUrl)
   const logout = _logout(cookieName, cookieDomain)
   const cors = _cors(cookieDomain, publicUrl)
+  const verifyToken = (token) => _verifyToken(jwksClient, token)
   const router = express.Router()
   router.get('/login', login)
   router.get('/me', auth, (req, res) => {
@@ -43,7 +44,7 @@ module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDi
   router.delete('/asadmin', _delAsAdmin(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite), (req, res) => res.status(204).send(req.user))
   router.delete('/adminmode', _delAdminMode(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite), (req, res) => res.status(204).send(req.user))
 
-  return { auth, requiredAuth, decode, loginCallback, login, logout, cors, router }
+  return { auth, requiredAuth, decode, loginCallback, login, logout, cors, verifyToken, router }
 }
 
 // A cache of jwks clients, so that this module's main function can be called multiple times
