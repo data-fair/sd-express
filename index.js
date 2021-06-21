@@ -2,23 +2,64 @@ const util = require('util')
 const assert = require('assert')
 const URL = require('url').URL
 const axios = require('axios')
-const express = require('express')
 const jwt = require('jsonwebtoken')
 const jwksRsa = require('jwks-rsa')
 const Cookies = require('cookies')
-const corsBuilder = require('cors')
 jwt.verifyAsync = util.promisify(jwt.verify)
 const debug = require('debug')('session')
 
-module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDirectoryUrl, sameSite }) => {
+module.exports = ({ directoryUrl, privateDirectoryUrl, publicUrl, cookieName, cookieDomain, sameSite }) => {
   assert.ok(!!directoryUrl, 'directoryUrl parameter is required')
-  assert.ok(!!publicUrl, 'publicUrl parameter is required')
+  assert.ok(!publicUrl, 'publicUrl parameter is deprecated')
+  assert.ok(!cookieDomain, 'cookieDomain parameter is deprecated')
+  assert.ok(!sameSite, 'sameSite parameter is deprecated')
   cookieName = cookieName || 'id_token'
-  debug('Init with parameters', { directoryUrl, publicUrl, cookieName })
+  debug('Init with parameters', { directoryUrl, cookieName })
   privateDirectoryUrl = privateDirectoryUrl || directoryUrl
 
-  const jwksClient = _getJWKSClient(privateDirectoryUrl)
-  const auth = _auth(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, false, sameSite)
+  const jwksClient = getJWKSClient(privateDirectoryUrl)
+
+  // This middleware checks if a user has an active session with a valid token
+  // it defines req.user and it can extend the session if necessary.
+  const auth = asyncWrap(async (req, res, next) => {
+    // JWT in a cookie = already active session
+    const cookies = new Cookies(req, res)
+    const token = getCookieToken(cookies, req, cookieName)
+    if (token) {
+      try {
+        debug(`Verify JWT token from the ${cookieName} cookie`)
+        req.user = await verifyToken(jwksClient, token)
+        readOrganization(cookies, cookieName, req, req.user)
+        debug('JWT token from cookie is ok', req.user)
+      } catch (err) {
+        // Token expired or bad in another way.. delete the cookie
+        debug('JWT token from cookie is broken, clear it', err)
+        cookies.set(cookieName, null)
+        cookies.set(cookieName + '_sign', null)
+        // case where the cookies were set before assigning domain
+        if (cookies.get(cookieName)) {
+          cookies.set(cookieName, null)
+          cookies.set(cookieName + '_sign', null)
+        }
+      }
+    }
+
+    // We have a token from cookie
+    // Does it need to be exchanged to prolongate the session ?
+    if (req.user && req.user.exp) {
+      debug('JWT token from cookie is set to expire on', new Date(req.user.exp * 1000))
+      const timestamp = Date.now() / 1000
+      // Token is more than 12 hours old or has less than half an hour left
+      const tooOld = timestamp > (req.user.iat + ((req.user.exp - req.user.iat) / 2))
+      if (tooOld) {
+        debug('The token has lived more than half its lifetime, renew it')
+        // TODO: transmit set-cookie ?
+        // const exchangedToken = await exchangeToken(privateDirectoryUrl, token)
+      }
+    }
+    next()
+  })
+
   const requiredAuth = (req, res, next) => {
     auth(req, res, err => {
       if (err) return next(err)
@@ -26,30 +67,13 @@ module.exports = ({ directoryUrl, publicUrl, cookieName, cookieDomain, privateDi
       next()
     })
   }
-  const decode = _decode(cookieName, cookieDomain, publicUrl)
-  const loginCallback = _loginCallback(directoryUrl, privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite)
-  const login = _login(directoryUrl, publicUrl)
-  const logout = _logout(cookieName, cookieDomain)
-  const cors = _cors(cookieDomain, publicUrl)
-  const verifyToken = (token) => _verifyToken(jwksClient, token)
-  const router = express.Router()
-  router.get('/login', login)
-  router.get('/me', auth, (req, res) => {
-    if (!req.user) return res.status(404).send()
-    else res.send(req.user)
-  })
-  router.post('/logout', logout)
-  router.post('/keepalive', _auth(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, true, sameSite), (req, res) => res.status(204).send(req.user))
-  router.post('/asadmin', _asAdmin(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite), (req, res) => res.status(204).send(req.user))
-  router.delete('/asadmin', _delAsAdmin(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite), (req, res) => res.status(204).send(req.user))
-  router.delete('/adminmode', _delAdminMode(privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite), (req, res) => res.status(204).send(req.user))
 
-  return { auth, requiredAuth, decode, loginCallback, login, logout, cors, verifyToken, router }
+  return { auth, requiredAuth, verifyToken: (token) => verifyToken(jwksClient, token) }
 }
 
 // A cache of jwks clients, so that this module's main function can be called multiple times
 const jwksClients = {}
-function _getJWKSClient (directoryUrl) {
+function getJWKSClient (directoryUrl) {
   if (jwksClients[directoryUrl]) return jwksClients[directoryUrl]
   jwksClients[directoryUrl] = jwksRsa({
     cache: true,
@@ -61,90 +85,20 @@ function _getJWKSClient (directoryUrl) {
   return jwksClients[directoryUrl]
 }
 
-// Return a function that can build a CORS middleware
-function _cors (cookieDomain, publicUrl) {
-  return ({ acceptServers, acceptAllOrigins }) => {
-    // accept server 2 server requests by default
-    acceptServers = acceptServers === undefined ? true : acceptServers
-    // do not accept call by outside origins by default
-    acceptAllOrigins = acceptAllOrigins === undefined ? false : acceptAllOrigins
-    return corsBuilder({
-      credentials: true,
-      origin (origin, callback) {
-        // Case of server to server requests
-        if (!origin) {
-          if (acceptServers) return callback(null, true)
-          return callback(new Error('No CORS allowed for server to server requests'))
-        }
-
-        // Case where we accept any domain as origin
-        if (acceptAllOrigins) return callback(null, true)
-
-        const originDomain = new URL(origin).host
-
-        // Case of mono-domain acceptance
-        if (!cookieDomain) {
-          if (originDomain === new URL(publicUrl).host) return callback(null, true)
-          return callback(new Error(`No CORS allowed from origin ${origin}`))
-        }
-
-        // Case of subdomains acceptance
-        if (originDomain === cookieDomain || originDomain.endsWith('.' + cookieDomain)) {
-          return callback(null, true)
-        }
-        callback(new Error(`No CORS allowed from origin ${origin}`))
-      }
-    })
-  }
-}
-
 // Fetch a session token from cookies if the same site policy is respected
-function _getCookieToken (cookies, req, cookieName, cookieDomain, publicUrl) {
+function getCookieToken (cookies, req, cookieName) {
   let token = cookies.get(cookieName)
   if (!token) return null
-  const reqOrigin = req.headers['origin']
-  const originDomain = reqOrigin && new URL(reqOrigin).hostname
-
-  // check that the origin of the request is part of the accepted domain
-  if (reqOrigin && cookieDomain && originDomain !== cookieDomain && !originDomain.endsWith('.' + cookieDomain)) {
-    debug(`A cookie was sent from origin ${reqOrigin} while cookie domain is ${cookieDomain}, ignore it`)
-    return null
-  }
-  // or simply that it is strictly equal to current target if domain is unspecified
-  // in this case we are also protected by sameSite
-  if (reqOrigin && !cookieDomain && originDomain !== new URL(publicUrl).hostname) {
-    debug(`A cookie was sent from origin ${reqOrigin} while public url is ${publicUrl}, ignore it`)
-    return null
-  }
-
-  // Putting the signature in a second token is recommended but optional
-  // and we accept full JWT in id_token cooke
   const signature = cookies.get(cookieName + '_sign')
-  if (signature && (token.match(/\./g) || []).length === 1) {
-    token += '.' + signature
-  }
+  token += '.' + signature
   return token
 }
 
-// Split JWT strategy, the signature is in a httpOnly cookie for XSS prevention
-// the header and payload are not httpOnly to be readable by client
-// all cookies use sameSite for CSRF prevention
-function _setCookieToken (cookies, cookieName, cookieDomain, token, payload, org, sameSite) {
-  const parts = token.split('.')
-  const opts = { sameSite: 'lax' }
-  if (!payload.adminMode) opts.expires = new Date(payload.exp * 1000)
-  if (cookieDomain) {
-    opts.domain = cookieDomain
-    // to support subdomains we can't use the sameSite opt
-    // we rely on our manual check of the origin
-    delete opts.sameSite
-  }
-  if (sameSite) opts.sameSite = sameSite
-  cookies.set(cookieName, parts[0] + '.' + parts[1], { ...opts, httpOnly: false })
-  cookies.set(cookieName + '_sign', parts[2], { ...opts, httpOnly: true })
-  if (org) {
-    cookies.set(cookieName + '_org', org, { ...opts, httpOnly: false })
-  }
+// Fetch the public info of signing key from the directory that acts as jwks provider
+async function verifyToken (jwksClient, token) {
+  const decoded = jwt.decode(token, { complete: true })
+  const signingKey = await jwksClient.getSigningKeyAsync(decoded.header.kid)
+  return jwt.verifyAsync(token, signingKey.publicKey || signingKey.rsaPublicKey)
 }
 
 // Use complementary cookie id_token_org to set the current active organization of the user
@@ -153,7 +107,7 @@ function _setCookieToken (cookies, cookieName, cookieDomain, token, payload, org
 // it is 'user' if id_token_org is an empty string or is equal to 'user'
 // it is null if id_token_org is absent or if it does not match an organization of the current user
 // it is the id of the orga in id_token_org
-function _setOrganization (cookies, cookieName, req, user) {
+function readOrganization (cookies, cookieName, req, user) {
   if (!user) return
   // The order is important. The header can set explicitly on a query even if the cookie contradicts.
   const organizationId = req.headers['x-organizationid'] || cookies.get(cookieName + '_org')
@@ -170,188 +124,11 @@ function _setOrganization (cookies, cookieName, req, user) {
   }
 }
 
-// Fetch the public info of signing key from the directory that acts as jwks provider
-async function _verifyToken (jwksClient, token) {
-  const decoded = jwt.decode(token, { complete: true })
-  const signingKey = await jwksClient.getSigningKeyAsync(decoded.header.kid)
-  return jwt.verifyAsync(token, signingKey.publicKey || signingKey.rsaPublicKey)
-}
-
 // Exchange a token (because if was a temporary auth token of because it is too old)
-async function _exchangeToken (privateDirectoryUrl, token, params) {
+/* async function _exchangeToken (privateDirectoryUrl, token, params) {
   const exchangeRes = await axios.post(privateDirectoryUrl + '/api/auth/exchange', null, { headers: { Authorization: 'Bearer ' + token }, params })
   return exchangeRes.data
-}
-
-// This middleware detects that we are coming from an authentication link (probably in an email)
-// and creates a new session accordingly
-function _loginCallback (directoryUrl, privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite) {
-  return asyncWrap(async (req, res, next) => {
-    // Get a JWT in a id_token query parameter = coming from a link in an email
-    const linkToken = req.query.id_token
-    if (linkToken) {
-      const cookies = new Cookies(req, res)
-      let reloadUrl = new URL(publicUrl + req.originalUrl)
-      if (req.hostname && !publicUrl.includes(req.hostname)) {
-        reloadUrl = new URL(`${req.protocol}://${req.hostname}${req.originalUrl}`)
-      }
-      reloadUrl.searchParams.delete('id_token')
-      reloadUrl.searchParams.delete('id_token_org')
-      try {
-        debug(`Verify JWT token from the query parameter`)
-        await _verifyToken(jwksClient, linkToken)
-        debug('JWT token from query parameter is ok, exchange it for a long term session token')
-        const exchangedToken = await _exchangeToken(privateDirectoryUrl, linkToken)
-        const payload = await _verifyToken(jwksClient, exchangedToken)
-        debug('Exchanged token is ok, store it', payload)
-        _setCookieToken(cookies, cookieName, cookieDomain, exchangedToken, payload, req.query.id_token_org, sameSite)
-      } catch (err) {
-        debug('JWT token from query parameter is broken', err)
-        _login(directoryUrl, reloadUrl)
-      }
-
-      debug('Reload current page without id_token query parameter', reloadUrl.toString())
-      return res.redirect(reloadUrl.toString())
-    }
-    next()
-  })
-}
-
-// This middleware checks if a user has an active session and defines req.user
-// Contrary to auth it does not validate the token, only decode it..
-// so it faster but it is limited to routes where req.user is informative
-function _decode (cookieName, cookieDomain, publicUrl) {
-  return (req, res, next) => {
-    // JWT in a cookie = already active session
-    const cookies = new Cookies(req, res)
-    const token = _getCookieToken(cookies, req, cookieName, cookieDomain, publicUrl)
-    if (token) {
-      req.user = jwt.decode(token)
-      _setOrganization(cookies, cookieName, req, req.user)
-    }
-    next()
-  }
-}
-
-// This middleware checks if a user has an active session with a valid token
-// it defines req.user and it can extend the session if necessary.
-function _auth (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, forceExchange, sameSite) {
-  return asyncWrap(async (req, res, next) => {
-    // JWT in a cookie = already active session
-    const cookies = new Cookies(req, res)
-    const token = _getCookieToken(cookies, req, cookieName, cookieDomain, publicUrl)
-    if (token) {
-      try {
-        debug(`Verify JWT token from the ${cookieName} cookie`)
-        req.user = await _verifyToken(jwksClient, token)
-        _setOrganization(cookies, cookieName, req, req.user)
-        debug('JWT token from cookie is ok', req.user)
-      } catch (err) {
-        // Token expired or bad in another way.. delete the cookie
-        debug('JWT token from cookie is broken, clear it', err)
-        cookies.set(cookieName, null, { domain: cookieDomain })
-        cookies.set(cookieName + '_sign', null, { domain: cookieDomain })
-        // case where the cookies were set before assigning domain
-        if (cookies.get(cookieName)) {
-          cookies.set(cookieName, null)
-          cookies.set(cookieName + '_sign', null)
-        }
-      }
-    }
-
-    // We have a token from cookie
-    // Does it need to be exchanged to prolongate the session ?
-    if (req.user && req.user.exp) {
-      debug('JWT token from cookie is set to expire on', new Date(req.user.exp * 1000))
-      const timestamp = Date.now() / 1000
-      // Token is more than 12 hours old or has less than half an hour left
-      const tooOld = timestamp > (req.user.iat + 43200)
-      const shortLife = timestamp > (req.user.exp - 1800)
-      if (tooOld) debug('The token was issued more than 12 hours ago, exchange it for a new one')
-      if (shortLife) debug('The token will expire in less than half an hour, exchange it for a new one')
-      if (forceExchange) debug('The token was explicitly required to be exchanged (keepalive route), exchange it for a new one')
-      if (tooOld || shortLife || forceExchange) {
-        const exchangedToken = await _exchangeToken(privateDirectoryUrl, token)
-        req.user = await _verifyToken(jwksClient, exchangedToken)
-        _setOrganization(cookies, cookieName, req, req.user)
-        debug('Exchanged token is ok, store it', req.user)
-        _setCookieToken(cookies, cookieName, cookieDomain, exchangedToken, req.user, null, sameSite)
-      }
-    }
-    next()
-  })
-}
-
-function _asAdmin (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite) {
-  return asyncWrap(async (req, res, next) => {
-    // JWT in a cookie = already active session
-    const cookies = new Cookies(req, res)
-    const token = _getCookieToken(cookies, req, cookieName, cookieDomain, publicUrl)
-    console.log('TOKEN', token)
-    const asAdminToken = (await axios.post(privateDirectoryUrl + '/api/auth/asadmin', req.body, { headers: { Authorization: 'Bearer ' + token } })).data
-    req.user = await _verifyToken(jwksClient, asAdminToken)
-    _setOrganization(cookies, cookieName, req, req.user)
-    debug('Exchanged token is ok, store it', req.user)
-    _setCookieToken(cookies, cookieName, cookieDomain, asAdminToken, req.user, null, sameSite)
-    next()
-  })
-}
-
-function _delAsAdmin (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite) {
-  return asyncWrap(async (req, res, next) => {
-    // JWT in a cookie = already active session
-    const cookies = new Cookies(req, res)
-    const token = _getCookieToken(cookies, req, cookieName, cookieDomain, publicUrl)
-    const normalToken = (await axios.delete(privateDirectoryUrl + '/api/auth/asadmin', { headers: { Authorization: 'Bearer ' + token } })).data
-    req.user = await _verifyToken(jwksClient, normalToken)
-    _setOrganization(cookies, cookieName, req, req.user)
-    debug('Exchanged token is ok, store it', req.user)
-    _setCookieToken(cookies, cookieName, cookieDomain, normalToken, req.user, null, sameSite)
-    next()
-  })
-}
-
-function _delAdminMode (privateDirectoryUrl, publicUrl, jwksClient, cookieName, cookieDomain, sameSite) {
-  return asyncWrap(async (req, res, next) => {
-    // JWT in a cookie = already active session
-    const cookies = new Cookies(req, res)
-    const token = _getCookieToken(cookies, req, cookieName, cookieDomain, publicUrl)
-    const normalToken = (await axios.post(privateDirectoryUrl + '/api/auth/exchange', null, { headers: { Authorization: 'Bearer ' + token }, params: { noAdmin: true } })).data
-    req.user = await _verifyToken(jwksClient, normalToken)
-    _setOrganization(cookies, cookieName, req, req.user)
-    debug('Exchanged token is ok, store it', req.user)
-    _setCookieToken(cookies, cookieName, cookieDomain, normalToken, req.user, null, sameSite)
-    next()
-  })
-}
-
-// Login is simply a link to the right page of the directory.
-// Going to the directory through a redirect, not throug a link in UI allows us
-// to send along some optional client id or any kind of trust enhancing secret
-function _login (directoryUrl, publicUrl) {
-  return (req, res) => {
-    let url = directoryUrl + '/login?redirect=' + encodeURIComponent(req.query.redirect || publicUrl)
-    if (req.query.email) url += `&email=${req.query.email}`
-    if (req.query.adminMode) url += `&adminMode=${req.query.adminMode}`
-    res.redirect(url)
-  }
-}
-
-// Sessions are only the persistence of the JWT token in cookies
-// no need to call the directory
-function _logout (cookieName, cookieDomain) {
-  return (req, res) => {
-    const cookies = new Cookies(req, res)
-    cookies.set(cookieName, null, { domain: cookieDomain })
-    cookies.set(cookieName + '_sign', null, { domain: cookieDomain })
-    // case where the cookies were set before assigning domain
-    if (cookies.get(cookieName)) {
-      cookies.set(cookieName, null)
-      cookies.set(cookieName + '_sign', null)
-    }
-    res.status(204).send()
-  }
-}
+} */
 
 // small route wrapper for better use of async/await with express
 function asyncWrap (route) {
