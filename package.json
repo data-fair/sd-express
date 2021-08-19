@@ -1,6 +1,6 @@
 {
   "name": "@koumoul/sd-express",
-  "version": "1.0.0-beta.0",
+  "version": "1.0.0",
   "description": "Middleware and router helpers to write expressjs applications that depend on simple-directory for authentication.",
   "main": "index.js",
   "scripts": {
