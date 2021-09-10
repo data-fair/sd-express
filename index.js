@@ -49,7 +49,6 @@ module.exports = ({ directoryUrl, privateDirectoryUrl, publicUrl, cookieName, co
     if (req.user && req.user.exp) {
       debug('JWT token from cookie is set to expire on', new Date(req.user.exp * 1000))
       const timestamp = Date.now() / 1000
-      // Token is more than 12 hours old or has less than half an hour left
       const tooOld = timestamp > (req.user.iat + ((req.user.exp - req.user.iat) / 2))
       if (tooOld) {
         debug('The token has lived more than half its lifetime, renew it')
