@@ -136,39 +136,45 @@ function asyncWrap (route) {
 }
 
 // Adding a few things for testing purposes
-module.exports.maildevAuth = async (email, sdUrl = 'http://localhost:8080', maildevUrl = 'http://localhost:1080') => {
-  await axios.post(sdUrl + `/api/auth/passwordless`, { email }, { params: { redirect: sdUrl + `?id_token=` } })
+module.exports.maildevAuth = async (email, sdUrl = 'http://localhost:8080', maildevUrl = 'http://localhost:1080', org) => {
+  await axios.post(sdUrl + `/api/auth/passwordless`, { email }, { params: { redirect: sdUrl + `?id_token=`, org } })
   const emails = (await axios.get(maildevUrl + '/email')).data
   const host = new URL(sdUrl).host
   const emailObj = emails
     .reverse()
-    .find(e => e.subject.indexOf(host) !== -1 && e.to[0].address === email)
+    .find(e => e.subject.indexOf(host) !== -1 && e.to[0].address.toLowerCase() === email.toLowerCase())
   if (!emailObj) throw new Error('Failed to find email sent to ' + email)
-  const match = emailObj.text.match(/id_token=(.*)\s/)
+  const match = emailObj.text.split('\n').find(l => l.startsWith(sdUrl))
   if (!match) throw new Error('Failed to extract id_token from mail content')
-  return match[1]
+  return match
 }
 
-module.exports.passwordAuth = async (email, password, sdUrl = 'http://localhost:8080', adminMode = false) => {
-  const res = await axios.post(sdUrl + `/api/auth/password`, { email, password, adminMode }, { params: { redirect: sdUrl + `?id_token=` }, maxRedirects: 0 })
-  const match = res.data.match(/id_token=(.*)/)
-  if (!match) throw new Error('Failed to extract id_token from response')
-  return match[1]
+module.exports.passwordAuth = async (email, password, sdUrl = 'http://localhost:8080', adminMode = false, org) => {
+  const res = await axios.post(sdUrl + `/api/auth/password`, { email, password, adminMode, org }, { params: { redirect: sdUrl + `?id_token=` }, maxRedirects: 0 })
+  return res.data
 }
 
 const _axiosInstances = {}
 module.exports.axiosAuth = async (email, org, opts = {}, sdUrl = 'http://localhost:8080', maildevUrl = 'http://localhost:1080') => {
-  if (_axiosInstances[email]) return _axiosInstances[email]
-  let token
-  if (email.indexOf(':') !== -1) {
-    token = await module.exports.passwordAuth(email.split(':')[0], email.split(':')[1], sdUrl, email.split(':').includes('adminMode'))
-  } else {
-    token = await module.exports.maildevAuth(email, sdUrl, maildevUrl)
+  if (!email) {
+    _axiosInstances.anonymous = axios.create(opts)
+    return _axiosInstances.anonymous
   }
-  opts.headers = opts.headers || {}
-  const tokenParts = token.split('.')
-  opts.headers.Cookie = `id_token=${tokenParts[0]}.${tokenParts[1]};id_token_sign=${tokenParts[2]}`
-  if (org) opts.headers.Cookie += `;id_token_org=${org};id_token_admin=true`
+  if (_axiosInstances[email]) return _axiosInstances[email]
+  let callbackUrl
+  if (email.indexOf(':') !== -1) {
+    callbackUrl = await module.exports.passwordAuth(email.split(':')[0], email.split(':')[1], sdUrl, email.split(':').includes('adminMode'), org)
+  } else {
+    callbackUrl = await module.exports.maildevAuth(email, sdUrl, maildevUrl, org)
+  }
+  try {
+    await axios.get(callbackUrl, { maxRedirects: 0 })
+  } catch (err) {
+    if (!err.response || err.response.status !== 302) throw err
+    opts.headers = opts.headers || {}
+    opts.headers.Cookie = err.response.headers['set-cookie'].map(s => s.split(';')[0]).join(';')
+  }
+
   _axiosInstances[email] = axios.create(opts)
   return _axiosInstances[email]
 }
