@@ -29,6 +29,7 @@ module.exports = ({ directoryUrl, privateDirectoryUrl, publicUrl, cookieName, co
       try {
         debug(`Verify JWT token from the ${cookieName} cookie`)
         req.user = await verifyToken(jwksClient, token)
+        if (req.user.temporary) throw new Error('Temporary tokens should not be used in actual auth cookies')
         readOrganization(cookies, cookieName, req, req.user)
         debug('JWT token from cookie is ok', req.user)
       } catch (err) {
