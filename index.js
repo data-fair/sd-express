@@ -167,6 +167,9 @@ module.exports.axiosAuth = async (email, org, opts = {}, sdUrl = 'http://localho
   } else {
     callbackUrl = await module.exports.maildevAuth(email, sdUrl, maildevUrl, org)
   }
+  if (callbackUrl.startsWith('http://localhost:8080/simple-directory')) {
+    callbackUrl = callbackUrl.replace('http://localhost:8080/simple-directory', 'http://localhost:8080')
+  }
   try {
     await axios.get(callbackUrl, { maxRedirects: 0 })
   } catch (err) {
