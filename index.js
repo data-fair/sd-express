@@ -34,27 +34,7 @@ module.exports = ({ directoryUrl, privateDirectoryUrl, publicUrl, cookieName, co
         debug('JWT token from cookie is ok', req.user)
       } catch (err) {
         // Token expired or bad in another way.. delete the cookie
-        debug('JWT token from cookie is broken, clear it', err)
-        cookies.set(cookieName, null)
-        cookies.set(cookieName + '_sign', null)
-        // case where the cookies were set before assigning domain
-        if (cookies.get(cookieName)) {
-          cookies.set(cookieName, null)
-          cookies.set(cookieName + '_sign', null)
-        }
-      }
-    }
-
-    // We have a token from cookie
-    // Does it need to be exchanged to prolongate the session ?
-    if (req.user && req.user.exp) {
-      debug('JWT token from cookie is set to expire on', new Date(req.user.exp * 1000))
-      const timestamp = Date.now() / 1000
-      const tooOld = timestamp > (req.user.iat + ((req.user.exp - req.user.iat) / 2))
-      if (tooOld) {
-        debug('The token has lived more than half its lifetime, renew it')
-        // TODO: transmit set-cookie ?
-        // const exchangedToken = await exchangeToken(privateDirectoryUrl, token)
+        console.warn('JWT token from cookie is broken', err)
       }
     }
     next()

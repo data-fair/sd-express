@@ -12,7 +12,7 @@ test('required parameters', t => {
 })
 
 test('proper exports', t => {
-  const cl = sdClient({ directoryUrl: 'http://directory', publicUrl: 'http://my-app' })
+  const cl = sdClient({ directoryUrl: 'http://directory' })
   t.truthy(cl.auth)
 })
 
