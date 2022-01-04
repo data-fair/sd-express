@@ -35,6 +35,13 @@ module.exports = ({ directoryUrl, privateDirectoryUrl, publicUrl, cookieName, co
       } catch (err) {
         // Token expired or bad in another way.. delete the cookie
         console.warn('JWT token from cookie is broken', err)
+        cookies.set(cookieName, null)
+        cookies.set(cookieName + '_sign', null)
+        // case where the cookies were set before assigning domain
+        if (cookies.get(cookieName)) {
+          cookies.set(cookieName, null)
+          cookies.set(cookieName + '_sign', null)
+        }
       }
     }
     next()
