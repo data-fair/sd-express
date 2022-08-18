@@ -37,11 +37,8 @@ module.exports = ({ directoryUrl, privateDirectoryUrl, publicUrl, cookieName, co
         console.warn('JWT token from cookie is broken', err)
         cookies.set(cookieName, null)
         cookies.set(cookieName + '_sign', null)
-        // case where the cookies were set before assigning domain
-        if (cookies.get(cookieName)) {
-          cookies.set(cookieName, null)
-          cookies.set(cookieName + '_sign', null)
-        }
+        cookies.set(cookieName + '_org', null)
+        cookies.set(cookieName + '_dep', null)
       }
     }
     next()
@@ -97,10 +94,14 @@ async function verifyToken (jwksClient, token) {
 function readOrganization (cookies, cookieName, req, user) {
   if (!user) return
   // The order is important. The header can set explicitly on a query even if the cookie contradicts.
-  const organizationId = req.headers['x-organizationid'] || cookies.get(cookieName + '_org')
+  const organizationId = req.headers['x-organizationid'] ? req.headers['x-organizationid'].split(':')[0] : cookies.get(cookieName + '_org')
+  const departmentId = req.headers['x-organizationid'] ? req.headers['x-organizationid'].split(':')[1] : cookies.get(cookieName + '_dep')
   user.activeAccount = { type: 'user', id: user.id, name: user.name }
   if (organizationId) {
     user.organization = (user.organizations || []).find(o => o.id === organizationId)
+    if (departmentId) {
+      user.organization = (user.organizations || []).find(o => o.id === organizationId && o.department === departmentId)
+    }
 
     if (user.organization) {
       user.consumerFlag = user.organization.id
