@@ -11,7 +11,7 @@ Initialization:
 
 ```
 const app = require('express')()
-const session = require('simple-directory-client-express')({directoryUrl: 'http://my-simple-directory', publicUrl: 'http://localhost:8080'})
+const session = require('@data-fair/sd-express')({directoryUrl: 'http://my-simple-directory'})
 
 // These routes are authenticated. In your router req.user will be defined with the content of the session.
 app.use('/api', session.auth, apiRouter)

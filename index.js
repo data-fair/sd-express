@@ -125,7 +125,7 @@ function asyncWrap (route) {
 
 // Adding a few things for testing purposes
 module.exports.maildevAuth = async (email, sdUrl = 'http://localhost:8080', maildevUrl = 'http://localhost:1080', org) => {
-  await axios.post(sdUrl + `/api/auth/passwordless`, { email }, { params: { redirect: sdUrl + `?id_token=`, org } })
+  await axios.post(sdUrl + '/api/auth/passwordless', { email }, { params: { redirect: sdUrl + '?id_token=', org } })
   const emails = (await axios.get(maildevUrl + '/email')).data
   const host = new URL(sdUrl).host
   const emailObj = emails
@@ -138,7 +138,7 @@ module.exports.maildevAuth = async (email, sdUrl = 'http://localhost:8080', mail
 }
 
 module.exports.passwordAuth = async (email, password, sdUrl = 'http://localhost:8080', adminMode = false, org) => {
-  const res = await axios.post(sdUrl + `/api/auth/password`, { email, password, adminMode, org }, { params: { redirect: sdUrl + `?id_token=` }, maxRedirects: 0 })
+  const res = await axios.post(sdUrl + '/api/auth/password', { email, password, adminMode, org }, { params: { redirect: sdUrl + '?id_token=' }, maxRedirects: 0 })
   return res.data
 }
 
