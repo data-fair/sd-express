@@ -97,6 +97,8 @@ function readOrganization (cookies, cookieName, req, user) {
   const organizationId = req.headers['x-organizationid'] ? req.headers['x-organizationid'].split(':')[0] : cookies.get(cookieName + '_org')
   const departmentId = req.headers['x-organizationid'] ? req.headers['x-organizationid'].split(':')[1] : cookies.get(cookieName + '_dep')
   user.activeAccount = { type: 'user', id: user.id, name: user.name }
+  user.accountOwner = { ...user.activeAccount }
+  user.accountOwnerRole = 'admin'
   if (organizationId) {
     user.organization = (user.organizations || []).find(o => o.id === organizationId)
     if (departmentId) {
@@ -106,6 +108,14 @@ function readOrganization (cookies, cookieName, req, user) {
     if (user.organization) {
       user.consumerFlag = user.organization.id
       user.activeAccount = { ...user.organization, type: 'organization' }
+      user.accountOwner = { type: 'organization', id: user.organization.id, name: user.organization.name }
+      if (user.organization.department) {
+        user.accountOwner.department = user.organization.department
+        if (user.organization.departmentName) {
+          user.accountOwner.departmentName = user.organization.departmentName
+        }
+      }
+      user.accountOwnerRole = user.organization.role
     } else if (organizationId === '' || organizationId.toLowerCase() === 'user') {
       user.consumerFlag = 'user'
     }
