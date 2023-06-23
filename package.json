@@ -1,6 +1,6 @@
 {
   "name": "@data-fair/sd-express",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Middleware and router helpers to write expressjs applications that depend on simple-directory for authentication.",
   "main": "index.js",
   "scripts": {
