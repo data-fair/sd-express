@@ -95,7 +95,8 @@ function readOrganization (cookies, cookieName, req, user) {
   if (!user) return
   // The order is important. The header can set explicitly on a query even if the cookie contradicts.
   const organizationId = req.headers['x-organizationid'] ? req.headers['x-organizationid'].split(':')[0] : cookies.get(cookieName + '_org')
-  const departmentId = req.headers['x-organizationid'] ? req.headers['x-organizationid'].split(':')[1] : cookies.get(cookieName + '_dep')
+  // we use decodeURIComponent on _dep cookie as older departments could have spacial chars (no longer, we use a slug now) and some client cookies libraries use encodeURIComponent
+  const departmentId = req.headers['x-organizationid'] ? req.headers['x-organizationid'].split(':')[1] : decodeURIComponent(cookies.get(cookieName + '_dep'))
   user.activeAccount = { type: 'user', id: user.id, name: user.name }
   user.accountOwner = { ...user.activeAccount }
   user.accountOwnerRole = 'admin'
