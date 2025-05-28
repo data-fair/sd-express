@@ -39,6 +39,7 @@ module.exports = ({ directoryUrl, privateDirectoryUrl, publicUrl, cookieName, co
         cookies.set(cookieName + '_sign', null)
         cookies.set(cookieName + '_org', null)
         cookies.set(cookieName + '_dep', null)
+        cookies.set(cookieName + '_role', null)
       }
     }
     next()
@@ -97,15 +98,18 @@ function readOrganization (cookies, cookieName, req, user) {
   const organizationId = req.headers['x-organizationid'] ? req.headers['x-organizationid'].split(':')[0] : cookies.get(cookieName + '_org')
   // we use decodeURIComponent on _dep cookie as older departments could have spacial chars (no longer, we use a slug now) and some client cookies libraries use encodeURIComponent
   const departmentId = req.headers['x-organizationid'] ? req.headers['x-organizationid'].split(':')[1] : (cookies.get(cookieName + '_dep') && decodeURIComponent(cookies.get(cookieName + '_dep')))
+  const role = cookies.get(cookieName + '_role')
   user.activeAccount = { type: 'user', id: user.id, name: user.name }
   user.accountOwner = { ...user.activeAccount }
   user.accountOwnerRole = 'admin'
   if (organizationId) {
-    user.organization = (user.organizations || []).find(o => o.id === organizationId)
-    if (departmentId) {
-      user.organization = (user.organizations || []).find(o => o.id === organizationId && o.department === departmentId)
-    }
-
+    user.organization = (user.organizations || []).find(o => {
+      if (o.id !== organizationId) return false
+      if (departmentId && o.department !== departmentId) return false
+      if (role && o.role !== role) return false
+      return true
+    })
+    
     if (user.organization) {
       user.consumerFlag = user.organization.id
       user.activeAccount = { ...user.organization, type: 'organization' }
